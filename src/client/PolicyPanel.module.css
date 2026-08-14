@@ -1,0 +1,32 @@
+/* 策略面板：策略列表 + 启用开关，只引用设计 token。 */
+.list {
+  margin-top: 6px;
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 3px 0;
+}
+
+.toggle {
+  cursor: pointer;
+  flex: none;
+}
+
+.info {
+  flex: 1;
+  min-width: 0;
+}
+
+.name {
+  font-size: var(--dsw-font-xxs-12);
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary);
+}
+
+.meta {
+  font-size: var(--dsw-font-xxxs-11);
+  color: var(--dsw-alias-label-tertiary);
+}

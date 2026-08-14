@@ -8,7 +8,7 @@
  * @module dsh-change-center/api
  */
 
-import type { Context } from '@deepseek-ai/cordis'
+import type { Context, Events } from '@deepseek-ai/cordis'
 // Type-only: pulls the `ctx.webServer` Context merge into scope.
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type { IncomingMessage, ServerResponse } from 'node:http'
@@ -23,9 +23,22 @@ const BODY_TOO_LARGE = 'request body exceeds 1MB limit'
 const DEFAULT_LIMIT = 100
 const MAX_LIMIT = 500
 
+/** Events forwarded to `/events` SSE clients. */
+const SSE_EVENTS = [
+  'change:created', 'change:approved', 'change:rejected', 'change:applied',
+  'change:failed', 'change:rollback', 'change-session:created', 'change-session:status',
+  'change:reviewed', 'verification:completed', 'history:recorded', 'job:settled',
+] as const
+
+/** Currently connected SSE clients; written on every forwarded event. */
+const sseClients = new Set<ServerResponse>()
+
 /**
  * Register the change-center REST surface. Actions are status-machine
- * transitions on the in-memory store; payloads are plain JSON.
+ * transitions on the in-memory store; payloads are plain JSON. Long-running
+ * actions (verification/review/fix/loop) submit background jobs and return
+ * immediately; their progress is observable through the jobs API and the
+ * `/events` SSE stream.
  * @param ctx - host context providing the change services and web server.
  */
 export function applyRoutes(ctx: Context): void {
@@ -33,7 +46,7 @@ export function applyRoutes(ctx: Context): void {
   // HTTP surface, which is fine for headless assemblies. The change services
   // are injected here so route handlers may read them on the same context.
   ctx.inject([
-    'webServer', 'changeCenter', 'changeSessions',
+    'webServer', 'changeCenter', 'changeSessions', 'jobs',
     'git', 'verification', 'aiReview', 'risk', 'changeHistory',
     'policies', 'aiFix', 'fixLoop',
   ], (webCtx) => {
@@ -44,6 +57,15 @@ export function applyRoutes(ctx: Context): void {
         void handle(req, res, webCtx)
       },
     }), 'change-center: api routes')
+    // Forward the plugin's own events to SSE subscribers on the same context.
+    for (const event of SSE_EVENTS) {
+      webCtx.on(event as keyof Events, ((...args: unknown[]) => {
+        const data = `event: ${event}\ndata: ${JSON.stringify(args)}\n\n`
+        for (const client of sseClients) {
+          try { client.write(data) } catch { /* client gone */ }
+        }
+      }) as never)
+    }
   })
 }
 
@@ -60,6 +82,10 @@ type Parsed =
   | { kind: 'history'; id: string; action: 'history' | 'timeline' }
   | { kind: 'fix'; id: string; action: 'run' | 'list' }
   | { kind: 'loop'; id: string }
+  | { kind: 'job'; id: string }
+  | { kind: 'job-action'; id: string; action: 'cancel' }
+  | { kind: 'session-jobs'; id: string }
+  | { kind: 'events' }
   | { kind: 'policies'; action: 'list' | 'create' }
   | { kind: 'policy'; id: string; action: 'update' | 'delete' }
   | { kind: 'changes' }
@@ -67,60 +93,45 @@ type Parsed =
   | { kind: 'change-action'; id: string; action: 'approve' | 'reject' | 'apply' | 'rollback' | 'edit' }
   | { kind: 'not-found' }
 
-function parsePath(pathname: string): Parsed {
-  const rest = pathname.slice(PREFIX.length)
-  const parts = rest.split('/').filter(part => part.length > 0)
-  if (parts.length === 0) return { kind: 'not-found' }
-  if (parts[0] === 'policies') {
-    if (parts.length === 1) return { kind: 'policies', action: 'list' }
-  }
-  if (parts[0] === 'policies' && parts.length === 3) {
-    return { kind: 'policy', id: parts[1], action: parts[2] as 'update' | 'delete' }
-  }
-  if (parts[0] === 'sessions') {
-    if (parts.length === 1) return { kind: 'sessions' }
-    if (parts.length === 2) return { kind: 'session', id: parts[1] }
-    if (parts.length === 3 && parts[2] === 'changes') return { kind: 'session-changes', id: parts[1] }
-    if (parts.length === 3 && (parts[2] === 'accept-all' || parts[2] === 'reject-all')) {
-      return { kind: 'session-action', id: parts[1], action: parts[2] }
-    }
-    if (parts.length === 3 && parts[2] === 'git') return { kind: 'git', id: parts[1], action: 'status' }
-    if (parts.length === 4 && parts[2] === 'git'
-      && (parts[3] === 'diff' || parts[3] === 'log' || parts[3] === 'status')) {
-      return { kind: 'git', id: parts[1], action: parts[3] }
-    }
-    if (parts.length === 3 && parts[2] === 'verification') return { kind: 'verification', id: parts[1], action: 'list' }
-    if (parts.length === 4 && parts[2] === 'verification' && parts[3] === 'run') {
-      return { kind: 'verification', id: parts[1], action: 'run' }
-    }
-    if (parts.length === 3 && parts[2] === 'review') return { kind: 'review', id: parts[1], action: 'get' }
-    if (parts.length === 4 && parts[2] === 'review' && parts[3] === 'run') {
-      return { kind: 'review', id: parts[1], action: 'run' }
-    }
-    if (parts.length === 3 && parts[2] === 'risk') return { kind: 'risk', id: parts[1], action: 'get' }
-    if (parts.length === 4 && parts[2] === 'risk' && parts[3] === 'analyze') {
-      return { kind: 'risk', id: parts[1], action: 'analyze' }
-    }
-    if (parts.length === 3 && parts[2] === 'history') return { kind: 'history', id: parts[1], action: 'history' }
-    if (parts.length === 4 && parts[2] === 'history' && parts[3] === 'timeline') {
-      return { kind: 'history', id: parts[1], action: 'timeline' }
-    }
-    if (parts.length === 3 && parts[2] === 'fix') return { kind: 'fix', id: parts[1], action: 'list' }
-    if (parts.length === 4 && parts[2] === 'fix' && parts[3] === 'run') {
-      return { kind: 'fix', id: parts[1], action: 'run' }
-    }
-    if (parts.length === 4 && parts[2] === 'loop' && parts[3] === 'run') {
-      return { kind: 'loop', id: parts[1] }
-    }
-  }
-  if (parts[0] === 'changes') {
-    if (parts.length === 1) return { kind: 'changes' }
-    if (parts.length === 2) return { kind: 'change', id: parts[1] }
-    if (parts.length === 3
-      && (parts[2] === 'approve' || parts[2] === 'reject' || parts[2] === 'apply'
-        || parts[2] === 'rollback' || parts[2] === 'edit')) {
-      return { kind: 'change-action', id: parts[1], action: parts[2] }
-    }
+/** One compiled route rule: anchored regex over the path after the prefix. */
+interface RouteRule {
+  re: RegExp
+  build: (match: RegExpMatchArray) => Parsed
+}
+
+/**
+ * Table-driven route matcher. Rules are anchored and tried in order; the
+ * first match wins. Each rule captures path segments into a {@link Parsed}.
+ */
+const ROUTE_RULES: RouteRule[] = [
+  { re: /^\/policies\/?$/, build: () => ({ kind: 'policies', action: 'list' }) },
+  { re: /^\/policies\/([^/]+)\/(update|delete)$/, build: m => ({ kind: 'policy', id: m[1]!, action: m[2] as 'update' | 'delete' }) },
+  { re: /^\/sessions\/?$/, build: () => ({ kind: 'sessions' }) },
+  { re: /^\/sessions\/([^/]+)$/, build: m => ({ kind: 'session', id: m[1]! }) },
+  { re: /^\/sessions\/([^/]+)\/changes$/, build: m => ({ kind: 'session-changes', id: m[1]! }) },
+  { re: /^\/sessions\/([^/]+)\/(accept-all|reject-all)$/, build: m => ({ kind: 'session-action', id: m[1]!, action: m[2] as 'accept-all' | 'reject-all' }) },
+  { re: /^\/sessions\/([^/]+)\/git\/?(diff|log|status)?$/, build: m => ({ kind: 'git', id: m[1]!, action: (m[2] ?? 'status') as 'status' | 'diff' | 'log' }) },
+  { re: /^\/sessions\/([^/]+)\/verification\/?(run)?$/, build: m => ({ kind: 'verification', id: m[1]!, action: (m[2] ?? 'list') as 'run' | 'list' }) },
+  { re: /^\/sessions\/([^/]+)\/review\/?(run)?$/, build: m => ({ kind: 'review', id: m[1]!, action: (m[2] ?? 'get') as 'run' | 'get' }) },
+  { re: /^\/sessions\/([^/]+)\/risk\/?(analyze)?$/, build: m => ({ kind: 'risk', id: m[1]!, action: (m[2] ?? 'get') as 'analyze' | 'get' }) },
+  { re: /^\/sessions\/([^/]+)\/history\/?(timeline)?$/, build: m => ({ kind: 'history', id: m[1]!, action: (m[2] ?? 'history') as 'history' | 'timeline' }) },
+  { re: /^\/sessions\/([^/]+)\/fix\/?(run)?$/, build: m => ({ kind: 'fix', id: m[1]!, action: (m[2] ?? 'list') as 'run' | 'list' }) },
+  { re: /^\/sessions\/([^/]+)\/loop\/run$/, build: m => ({ kind: 'loop', id: m[1]! }) },
+  { re: /^\/sessions\/([^/]+)\/jobs$/, build: m => ({ kind: 'session-jobs', id: m[1]! }) },
+  { re: /^\/jobs\/([^/]+)$/, build: m => ({ kind: 'job', id: m[1]! }) },
+  { re: /^\/jobs\/([^/]+)\/cancel$/, build: m => ({ kind: 'job-action', id: m[1]!, action: 'cancel' }) },
+  { re: /^\/events\/?$/, build: () => ({ kind: 'events' }) },
+  { re: /^\/changes\/?$/, build: () => ({ kind: 'changes' }) },
+  { re: /^\/changes\/([^/]+)$/, build: m => ({ kind: 'change', id: m[1]! }) },
+  { re: /^\/changes\/([^/]+)\/(approve|reject|apply|rollback|edit)$/, build: m => ({ kind: 'change-action', id: m[1]!, action: m[2] as 'approve' | 'reject' | 'apply' | 'rollback' | 'edit' }) },
+]
+
+/** Parse a change-center pathname into a {@link Parsed} route. */
+export function parsePath(pathname: string): Parsed {
+  const rest = pathname.startsWith(PREFIX) ? pathname.slice(PREFIX.length) : pathname
+  for (const rule of ROUTE_RULES) {
+    const match = rule.re.exec(rest)
+    if (match !== null) return rule.build(match)
   }
   return { kind: 'not-found' }
 }
@@ -145,6 +156,10 @@ function isReadRoute(parsed: Parsed): boolean {
       return parsed.action === 'get'
     case 'fix':
       return parsed.action === 'list'
+    case 'job':
+    case 'session-jobs':
+    case 'events':
+      return true
     case 'policies':
       // /policies carries both GET list and POST create on the same path.
       return true
@@ -161,6 +176,10 @@ async function handle(req: IncomingMessage, res: ServerResponse, ctx: Context): 
     const parsed = parsePath(url.pathname)
     if (parsed.kind === 'not-found') {
       return sendJson(res, 404, { error: 'not found' })
+    }
+    // The SSE stream upgrades the connection; nothing else is dispatched.
+    if (parsed.kind === 'events') {
+      return handleSse(req, res)
     }
     const method = req.method ?? 'GET'
     const isRead = isReadRoute(parsed)
@@ -254,13 +273,16 @@ async function dispatch(
       const session = ctx.changeSessions.get(parsed.id)
       if (session === undefined) return { error: `unknown session "${parsed.id}"` }
       if (parsed.action === 'list') return { tasks: ctx.verification.list(parsed.id) }
-      return { task: await ctx.verification.run(parsed.id, session.workspace) }
+      // Background job: the shell run leaves the request path immediately.
+      return { job: ctx.jobs.submit(parsed.id, 'verification', signal =>
+        ctx.verification.run(parsed.id, session.workspace, signal !== undefined ? { signal } : undefined)) }
     }
     case 'review': {
       if (parsed.action === 'get') return { review: ctx.aiReview.get(parsed.id) ?? null }
       const session = ctx.changeSessions.get(parsed.id)
       if (session === undefined) return { error: `unknown session "${parsed.id}"` }
-      return { review: await ctx.aiReview.review(parsed.id, ctx.changeSessions, session.workspace) }
+      return { job: ctx.jobs.submit(parsed.id, 'review', signal =>
+        ctx.aiReview.review(parsed.id, ctx.changeSessions, session.workspace, signal !== undefined ? { signal } : undefined)) }
     }
     case 'risk': {
       if (parsed.action === 'get') return { risk: ctx.risk.get(parsed.id) ?? null }
@@ -290,13 +312,23 @@ async function dispatch(
       if (finding === undefined) return { error: `unknown finding "${findingId}"` }
       const change = ctx.changeCenter.get(changeId)
       if (change === undefined) return { error: `unknown change "${changeId}"` }
-      return { result: await ctx.aiFix.fix(reviewId, finding, change, ctx.changeCenter) }
+      return { job: ctx.jobs.submit(parsed.id, 'ai-fix', signal =>
+        ctx.aiFix.fix(reviewId, finding, change, ctx.changeCenter, signal !== undefined ? { signal } : undefined)) }
     }
     case 'loop': {
       const session = ctx.changeSessions.get(parsed.id)
       if (session === undefined) return { error: `unknown session "${parsed.id}"` }
       const { maxIterations } = (body ?? {}) as { maxIterations?: number }
-      return { result: await ctx.fixLoop.run(parsed.id, session.workspace, maxIterations) }
+      return { job: ctx.jobs.submit(parsed.id, 'review-fix-loop', signal =>
+        ctx.fixLoop.run(parsed.id, session.workspace, maxIterations, signal !== undefined ? { signal } : undefined)) }
+    }
+    case 'session-jobs':
+      return { jobs: ctx.jobs.listBySession(parsed.id) }
+    case 'job':
+      return { job: ctx.jobs.get(parsed.id) ?? null }
+    case 'job-action': {
+      const job = ctx.jobs.cancel(parsed.id)
+      return { job: job ?? null }
     }
     case 'policies': {
       // GET list has no body; POST create carries a policy payload.
@@ -315,6 +347,24 @@ async function dispatch(
       return { policies: await ctx.policies.save(policy) }
     }
   }
+}
+
+/**
+ * Upgrade the connection to a Server-Sent Events stream. The forwarders
+ * registered in {@link applyRoutes} write plugin events to every connected
+ * client; the browser half reconnects automatically when it drops.
+ */
+function handleSse(req: IncomingMessage, res: ServerResponse): void {
+  res.writeHead(200, {
+    'content-type': 'text/event-stream',
+    'cache-control': 'no-cache',
+    connection: 'keep-alive',
+  })
+  res.write(': connected\n\n')
+  sseClients.add(res)
+  req.on('close', () => {
+    sseClients.delete(res)
+  })
 }
 
 function readJsonBody(req: IncomingMessage): Promise<unknown> {
@@ -346,7 +396,7 @@ function readJsonBody(req: IncomingMessage): Promise<unknown> {
 }
 
 /** Slice a list with `limit`/`offset` from the query string (bounded). */
-function paginate<T>(items: T[], url: URL): T[] {
+export function paginate<T>(items: T[], url: URL): T[] {
   const limit = clampInt(url.searchParams.get('limit'), DEFAULT_LIMIT, 1, MAX_LIMIT)
   const offset = clampInt(url.searchParams.get('offset'), 0, 0, Number.MAX_SAFE_INTEGER)
   return items.slice(offset, offset + limit)

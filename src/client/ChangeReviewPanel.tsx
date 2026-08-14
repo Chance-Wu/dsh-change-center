@@ -37,7 +37,7 @@ export interface ChangeReviewPanelProps {
  * keep them out of the review surface.
  */
 export function isReviewableChange(change: WireChange): boolean {
-  if (change.kind !== undefined && change.kind !== 'file') return false
+  if (change.kind !== 'file') return false
   return change.before !== change.after
 }
 

@@ -15,6 +15,13 @@ import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { SettingsSectionOwnerProps } from '@deepseek-ai/dsh-client-ui-settings/client'
 import { createElement } from 'react'
+// Wire types are the host models themselves (type-only imports; erased at
+// bundle time) so the client never drifts from the host's data shapes.
+import type { FileChange } from '../models/FileChange.ts'
+import type { ChangeSession } from '../models/ChangeSession.ts'
+import type { ChangeEvent, ChangeRisk, ReviewFinding, ReviewResult, VerificationTask } from '../models/Phase3.ts'
+import type { ChangePolicy, FixRequest, FixResult } from '../models/Phase4.ts'
+import type { Job } from '../services/JobService.ts'
 import { ChangeCenterSection } from './ChangeCenterSection.tsx'
 import { ChangesTab, type ChangesTabInjected } from './ChangesTab.tsx'
 
@@ -49,35 +56,11 @@ export function apply(ctx: ClientContext): void {
   }))
 }
 
-/** The wire shape of a captured change (mirrors the host model). */
-export interface WireChange {
-  id: string
-  sessionId: string
-  cwd: string
-  kind?: 'file' | 'command' | 'external'
-  path: string
-  operation: 'create' | 'modify' | 'delete' | 'rename' | 'execute'
-  before: string | null
-  after: string | null
-  diff: string
-  status: 'pending' | 'approved' | 'rejected' | 'applied' | 'failed' | 'rolled_back'
-  toolName: string
-  createdAt: number
-  updatedAt: number
-}
+/** Wire shape of a captured change — the host {@link FileChange} model. */
+export type WireChange = FileChange
 
-/** The wire shape of a change session. */
-export interface WireSession {
-  id: string
-  name: string
-  status: 'active' | 'completed' | 'cancelled' | 'failed'
-  agentSessionId: string
-  workspace: string
-  changeIds: string[]
-  statistics: { files: number; additions: number; deletions: number }
-  createdAt: number
-  updatedAt: number
-}
+/** Wire shape of a change session — the host {@link ChangeSession} model. */
+export type WireSession = ChangeSession
 
 /** Result of a change action (apply/rollback). */
 export interface ActionResult {
@@ -94,92 +77,35 @@ export interface GitResponse {
   diff?: string
 }
 
-/** Wire shape of a verification task. */
-export interface WireVerificationTask {
-  id: string
-  sessionId: string
-  type: string
-  command: string
-  status: 'pending' | 'running' | 'passed' | 'failed' | 'cancelled'
-  exitCode?: number
-  output?: string
-  startedAt?: number
-  finishedAt?: number
-}
+/** Wire shape of a verification task — the host {@link VerificationTask}. */
+export type WireVerificationTask = VerificationTask
 
-/** Wire shape of a review finding. */
-export interface WireFinding {
-  id: string
-  severity: string
-  filePath: string
-  line?: number
-  title: string
-  description: string
-  suggestion?: string
-}
+/** Wire shape of a review finding — the host {@link ReviewFinding}. */
+export type WireFinding = ReviewFinding
 
-/** Wire shape of an AI review result. */
-export interface WireReview {
-  sessionId: string
-  summary: string
-  risk: string
-  score: number
-  findings: WireFinding[]
-}
+/** Wire shape of an AI review result — the host {@link ReviewResult}. */
+export type WireReview = ReviewResult
 
-/** Wire shape of a risk result. */
-export interface WireRisk {
-  level: string
-  score: number
-  reasons: { rule: string; level: string; detail: string }[]
-}
+/** Wire shape of a risk result — the host {@link ChangeRisk}. */
+export type WireRisk = ChangeRisk
 
-/** Wire shape of a history/timeline event. */
-export interface WireHistoryEvent {
-  id: string
-  sessionId: string
-  changeId?: string
-  type: string
-  actor: string
-  timestamp: number
-  metadata?: Record<string, unknown>
-}
+/** Wire shape of a history/timeline event — the host {@link ChangeEvent}. */
+export type WireHistoryEvent = ChangeEvent
 
-/** Wire shape of a change policy. */
-export interface WirePolicy {
-  id: string
-  name: string
-  enabled: boolean
-  priority: number
-  conditions: { type: string; operator: string; value: unknown }[]
-  action: 'allow' | 'warn' | 'deny'
-}
+/** Wire shape of a change policy — the host {@link ChangePolicy}. */
+export type WirePolicy = ChangePolicy
 
-/** Wire shape of a policy evaluation result. */
-export interface WirePolicyEvaluation {
-  policyId: string
-  action: string
-  reason: string
-}
+/** Wire shape of a fix request — the host {@link FixRequest}. */
+export type WireFixRequest = FixRequest
 
-/** Wire shape of a fix request. */
-export interface WireFixRequest {
-  id: string
-  reviewId: string
-  findingId: string
-  sessionId: string
-  changeId: string
-  status: string
-  instruction: string
-  resultSummary?: string
-}
+/** Wire shape of a fix result — the host {@link FixResult}. */
+export type WireFixResult = FixResult
 
-/** Wire shape of a fix result. */
-export interface WireFixResult {
-  fixRequestId: string
-  changeIds: string[]
-  summary: string
-}
+/** Wire shape of a background job — the host {@link Job}. */
+export type WireJob = Job
+
+/** A subscription handle; call it to stop receiving events. */
+export type Unsubscribe = () => void
 
 /** Minimal API surface the section consumes. */
 export interface ChangeCenterApi {
@@ -207,6 +133,11 @@ export interface ChangeCenterApi {
   fixList(sessionId: string): Promise<WireFixRequest[]>
   fixRun(sessionId: string, reviewId: string, findingId: string, changeId: string): Promise<WireFixResult>
   loopRun(sessionId: string, maxIterations?: number): Promise<{ result: { iterations: number; stopped: string } }>
+  jobGet(id: string): Promise<{ job: WireJob | null }>
+  jobCancel(id: string): Promise<{ job: WireJob | null }>
+  sessionJobs(sessionId: string): Promise<{ jobs: WireJob[] }>
+  /** Subscribe to the host event stream; returns an unsubscribe handle. */
+  subscribeEvents(onEvent: (event: string) => void): Unsubscribe
 }
 
 /**
@@ -232,12 +163,16 @@ export function apiOf(): ChangeCenterApi {
     gitLog: (sessionId) => getJson(`/api/change-center/sessions/${sessionId}/git/log`).then(body => body as GitResponse),
     verificationList: (sessionId) =>
       getJson(`/api/change-center/sessions/${sessionId}/verification`).then(body => (body as { tasks: WireVerificationTask[] }).tasks),
-    verificationRun: (sessionId) =>
-      postJson(`/api/change-center/sessions/${sessionId}/verification/run`).then(body => (body as { task: WireVerificationTask | undefined }).task),
+    verificationRun: (sessionId) => submitJobAndWait(
+      () => postJson(`/api/change-center/sessions/${sessionId}/verification/run`) as Promise<{ job: { id: string } }>,
+      job => job.result as WireVerificationTask | undefined,
+    ),
     reviewGet: (sessionId) =>
       getJson(`/api/change-center/sessions/${sessionId}/review`).then(body => (body as { review: WireReview | null }).review),
-    reviewRun: (sessionId) =>
-      postJson(`/api/change-center/sessions/${sessionId}/review/run`).then(body => (body as { review: WireReview }).review),
+    reviewRun: (sessionId) => submitJobAndWait(
+      () => postJson(`/api/change-center/sessions/${sessionId}/review/run`) as Promise<{ job: { id: string } }>,
+      job => job.result as WireReview,
+    ),
     riskGet: (sessionId) =>
       getJson(`/api/change-center/sessions/${sessionId}/risk`).then(body => (body as { risk: WireRisk | null }).risk),
     riskAnalyze: (sessionId) =>
@@ -251,10 +186,44 @@ export function apiOf(): ChangeCenterApi {
     policyDelete: (id) => postJson(`/api/change-center/policies/${id}/delete`).then(body => (body as { policies: WirePolicy[] }).policies),
     fixList: (sessionId) =>
       getJson(`/api/change-center/sessions/${sessionId}/fix`).then(body => (body as { requests: WireFixRequest[] }).requests),
-    fixRun: (sessionId, reviewId, findingId, changeId) =>
-      postJson(`/api/change-center/sessions/${sessionId}/fix/run`, { reviewId, findingId, changeId }).then(body => (body as { result: WireFixResult }).result),
-    loopRun: (sessionId, maxIterations) =>
-      postJson(`/api/change-center/sessions/${sessionId}/loop/run`, { maxIterations }).then(body => body as { result: { iterations: number; stopped: string } }),
+    fixRun: (sessionId, reviewId, findingId, changeId) => submitJobAndWait(
+      () => postJson(`/api/change-center/sessions/${sessionId}/fix/run`, { reviewId, findingId, changeId }) as Promise<{ job: { id: string } }>,
+      job => job.result as WireFixResult,
+    ),
+    loopRun: (sessionId, maxIterations) => submitJobAndWait(
+      () => postJson(`/api/change-center/sessions/${sessionId}/loop/run`, { maxIterations }) as Promise<{ job: { id: string } }>,
+      job => ({ result: job.result as { iterations: number; stopped: string } }),
+    ),
+    jobGet: (id) => getJson(`/api/change-center/jobs/${id}`).then(body => body as { job: WireJob | null }),
+    jobCancel: (id) => postJson(`/api/change-center/jobs/${id}/cancel`).then(body => body as { job: WireJob | null }),
+    sessionJobs: (sessionId) =>
+      getJson(`/api/change-center/sessions/${sessionId}/jobs`).then(body => body as { jobs: WireJob[] }),
+    subscribeEvents: (onEvent) => {
+      const source = new EventSource('/api/change-center/events')
+      for (const name of ['change:created', 'change-session:created', 'change-session:status', 'job:settled']) {
+        source.addEventListener(name, () => onEvent(name))
+      }
+      return () => source.close()
+    },
+  }
+}
+
+/** Poll the returned job until it settles, then unwrap its result. */
+async function submitJobAndWait<T>(
+  submit: () => Promise<{ job: { id: string } }>,
+  unwrap: (job: { status: string; result?: unknown; error?: string }) => T,
+  timeoutMs = 180_000,
+): Promise<T> {
+  const { job } = await submit()
+  const deadline = Date.now() + timeoutMs
+  for (;;) {
+    const body = await getJson(`/api/change-center/jobs/${job.id}`) as { job: { status: string; result?: unknown; error?: string } }
+    const current = body.job
+    if (current.status === 'completed') return unwrap(current)
+    if (current.status === 'failed') throw new Error(current.error ?? 'change-center: job failed')
+    if (current.status === 'cancelled') throw new Error('change-center: job cancelled')
+    if (Date.now() > deadline) throw new Error('change-center: job timed out')
+    await new Promise(resolve => setTimeout(resolve, 300))
   }
 }
 

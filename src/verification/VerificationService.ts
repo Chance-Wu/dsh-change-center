@@ -77,10 +77,13 @@ export class VerificationService extends Service {
 
   /**
    * Run the detected verification command for a session's workspace.
+   * @param sessionId - the change session id.
+   * @param workspace - the workspace path to run in.
+   * @param opts - optional cancellation signal (honored by the shell run).
    * @returns the finished task (passed/failed), or undefined when no command
    *   was detected.
    */
-  async run(sessionId: string, workspace: string): Promise<VerificationTask | undefined> {
+  async run(sessionId: string, workspace: string, opts?: { signal?: AbortSignal }): Promise<VerificationTask | undefined> {
     const detected = await this.detectCommand(workspace)
     const task: VerificationTask = {
       id: `verify-${this.nextId++}`,
@@ -108,7 +111,12 @@ export class VerificationService extends Service {
       return task
     }
     try {
-      const spec = shell.resolve({ command: task.command, workdir: workspace, timeoutMs: VERIFY_TIMEOUT_MS })
+      const spec = shell.resolve({
+        command: task.command,
+        workdir: workspace,
+        timeoutMs: VERIFY_TIMEOUT_MS,
+        ...opts?.signal !== undefined ? { signal: opts.signal } : {},
+      })
       const result = await shell.run(spec)
       task.exitCode = result.exitCode ?? undefined
       task.output = [

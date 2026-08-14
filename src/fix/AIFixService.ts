@@ -58,9 +58,10 @@ export class AIFixService extends Service {
    * @param finding - the finding to fix.
    * @param change - the file change to fix (kind must be 'file').
    * @param changes - the change store.
+   * @param opts - optional cancellation signal (honored by the LLM stream).
    * @returns the fix result with the produced change id.
    */
-  async fix(reviewId: string, finding: ReviewFinding, change: FileChange, changes: ChangeService): Promise<FixResult> {
+  async fix(reviewId: string, finding: ReviewFinding, change: FileChange, changes: ChangeService, opts?: { signal?: AbortSignal }): Promise<FixResult> {
     const request: FixRequest = {
       id: `fix-${this.nextId++}`,
       reviewId,
@@ -125,6 +126,7 @@ export class AIFixService extends Service {
         system: FIX_SYSTEM,
         messages,
         maxTokens: FIX_MAX_TOKENS,
+        ...opts?.signal !== undefined ? { signal: opts.signal } : {},
       })) {
         assembler.push(chunk)
       }

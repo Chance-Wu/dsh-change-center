@@ -1,0 +1,27 @@
+/* 对话「变更」标签页：全高滚动容器 + 空态提示，只引用设计 token。 */
+.tab {
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
+}
+
+.error {
+  color: var(--dsw-alias-state-error-primary);
+  font-size: var(--dsw-font-xxs-12);
+  padding: 8px 12px;
+}
+
+.empty {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.emptyText {
+  font-size: var(--dsw-font-xs-13);
+  color: var(--dsw-alias-label-secondary);
+  text-align: center;
+  line-height: 1.6;
+}

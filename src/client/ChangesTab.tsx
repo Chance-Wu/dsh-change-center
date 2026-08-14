@@ -12,6 +12,7 @@
 import { createElement, useEffect, useState, type ReactElement } from 'react'
 import type { ChangeCenterApi, WireSession } from './index.ts'
 import { ChangeReviewPanel } from './ChangeReviewPanel.tsx'
+import css from './ChangesTab.module.css'
 
 /** Injected props: the agent session id for the conversation this tab shows. */
 export interface ChangesTabInjected {
@@ -44,26 +45,25 @@ export function ChangesTab(props: ChangesTabProps): ReactElement {
 
   useEffect(() => {
     refresh()
-    // 轮询：agent 运行期间新捕获的变更自动出现，无需手动切换标签页。
-    const timer = setInterval(refresh, 3000)
-    return () => clearInterval(timer)
+    // 事件驱动：host 推送 change/job 事件时自动刷新，无需轮询。
+    return api.subscribeEvents(() => refresh())
   }, [sessionId])
 
   if (error !== null) {
-    return createElement('div', { style: tabStyle },
-      createElement('p', { style: { color: 'var(--dsw-alias-state-error-primary)' } }, error))
+    return createElement('div', { className: css.tab },
+      createElement('p', { className: css.error }, error))
   }
   if (session === null) {
-    return createElement('div', { style: tabStyle },
-      createElement('div', { style: emptyStyle },
-        createElement('div', { style: { fontSize: 13, color: 'var(--dsw-alias-label-secondary)', textAlign: 'center', lineHeight: 1.6 } },
+    return createElement('div', { className: css.tab },
+      createElement('div', { className: css.empty },
+        createElement('div', { className: css.emptyText },
           '本会话暂无捕获的变更。',
           createElement('br'),
           '让 agent 修改文件后，变更会自动出现在这里。'),
       ),
     )
   }
-  return createElement('div', { style: tabStyle },
+  return createElement('div', { className: css.tab },
     createElement(ChangeReviewPanel, {
       sessionId: session.id,
       name: session.name,
@@ -75,17 +75,4 @@ export function ChangesTab(props: ChangesTabProps): ReactElement {
       onChanged: refresh,
     }),
   )
-}
-
-const tabStyle: Record<string, string | number> = {
-  height: '100%',
-  minHeight: 0,
-  overflow: 'auto',
-}
-const emptyStyle: Record<string, string | number> = {
-  height: '100%',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  padding: '24px',
 }

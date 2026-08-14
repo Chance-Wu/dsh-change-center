@@ -28,7 +28,7 @@ export interface LoopResult {
   iterations: number
   finalReview: ReviewResult
   fixedChangeIds: string[]
-  stopped: 'pass' | 'limit-reached' | 'no-fixable-findings'
+  stopped: 'pass' | 'limit-reached' | 'no-fixable-findings' | 'cancelled'
 }
 
 /** Drives the review-fix-verify loop for one session. */
@@ -42,8 +42,10 @@ export class ReviewFixLoopService extends Service {
    * @param sessionId - the change session id.
    * @param workspace - workspace path (for review context).
    * @param maxIterations - hard cap on fix rounds.
+   * @param opts - optional cancellation signal; the loop stops between
+   *   iterations and each review/fix call when aborted.
    */
-  async run(sessionId: string, workspace: string, maxIterations = DEFAULT_MAX_ITERATIONS): Promise<LoopResult> {
+  async run(sessionId: string, workspace: string, maxIterations = DEFAULT_MAX_ITERATIONS, opts?: { signal?: AbortSignal }): Promise<LoopResult> {
     const sessions = this.ctx.get('changeSessions')
     const changes = this.ctx.get('changeCenter')
     const aiReview = this.ctx.get('aiReview')
@@ -51,28 +53,32 @@ export class ReviewFixLoopService extends Service {
     if (sessions === undefined || changes === undefined || aiReview === undefined || aiFix === undefined) {
       throw new Error('fix-loop: required services unavailable')
     }
+    const signal = opts?.signal
     const fixedChangeIds: string[] = []
     let iterations = 0
-    let review = await aiReview.review(sessionId, sessions, workspace)
+    let review = await aiReview.review(sessionId, sessions, workspace, signal !== undefined ? { signal } : undefined)
     let fixable = this.fixableFindings(review)
 
-    while (fixable.length > 0 && iterations < maxIterations) {
+    while (fixable.length > 0 && iterations < maxIterations && !(signal?.aborted ?? false)) {
       iterations++
       for (const finding of fixable) {
+        if (signal?.aborted ?? false) break
         const change = this.findChangeForFinding(sessionId, finding, changes)
         if (change === undefined || change.kind !== 'file') continue
-        const result = await aiFix.fix(review.sessionId, finding, change, changes)
+        const result = await aiFix.fix(review.sessionId, finding, change, changes, signal !== undefined ? { signal } : undefined)
         fixedChangeIds.push(...result.changeIds)
       }
-      review = await aiReview.review(sessionId, sessions, workspace)
+      review = await aiReview.review(sessionId, sessions, workspace, signal !== undefined ? { signal } : undefined)
       fixable = this.fixableFindings(review)
     }
 
-    const stopped = fixable.length === 0
-      ? 'pass'
-      : iterations >= maxIterations
-        ? 'limit-reached'
-        : 'no-fixable-findings'
+    const stopped = (signal?.aborted ?? false)
+      ? 'cancelled'
+      : fixable.length === 0
+        ? 'pass'
+        : iterations >= maxIterations
+          ? 'limit-reached'
+          : 'no-fixable-findings'
     if (stopped === 'limit-reached') {
       this.ctx.emit('loop:limit-reached', { sessionId, iterations })
     }

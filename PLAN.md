@@ -14,10 +14,11 @@
 |------|------|------|
 | Phase 0 范围裁剪 | ✅ 完成 | 审批/工作流全部移除,无残留;测试 72→59(移除 13 个相关用例) |
 | Phase A 修复阻断 | ✅ 完成 | 持久化统一走 `ctx.fs`;History 映射修复;变更/会话 JSONL 落盘;**全量 63/63 通过**(新增 persistence/diff/edit 用例) |
-| Phase B 加固 | 🟡 部分 | 已完成 B-1(diff 上限+回退)、B-4a(检测异步化)、B-5(快照回滚清理+TTL)、B-6(purpose/edit 语义/路径匹配);B-2 完成分页+body 上限+错误码,**表格驱动路由重构未做**;B-3(长任务后台化/取消)未做 |
-| Phase C 体验/工程 | 🟡 部分 | 已完成 C-4(git init、.gitignore、README、CI workflow);C-1(事件驱动前端)、C-2(共享 wire 类型)、C-3(样式/文案统一)未做 |
+| Phase B 加固 | ✅ 完成 | B-1 diff 上限+回退 · B-2 表格驱动路由+分页+body 上限+错误码(routes.spec 32 例)· B-3 JobService 后台任务化(验证/审查/修复/循环,AbortSignal 取消,jobs.spec 6 例)· B-4a 检测异步化 · B-5 快照清理+TTL · B-6 purpose/edit 语义/路径匹配 |
+| Phase C 体验/工程 | ✅ 完成 | C-1 `/events` SSE 事件流,ChangesTab 改事件驱动(替代轮询)· C-2 wire 类型全部改为 host 模型别名 · C-3 样式收敛 CSS Module(ChangesTab/PolicyPanel)+ token · C-4 git init/.gitignore/README/CI |
 
-> 遗留项:B-2 表格驱动路由、B-3 后台任务、C-1/C-2/C-3,以及 B 阶段其余小项——见下方案例清单,可在后续轮次继续。
+> **收尾(2025-08-14)**:全量 **101/101 用例通过**(63 基础 + 32 路由 + 6 job),typecheck 绿,`pnpm build` 出包;已提交 commit。
+> 遗留(可选后续):B-3 的 UI 层取消按钮、C-1 在 settings 区也接入事件流、智能面板剩余动态内联样式。
 
 ---
 

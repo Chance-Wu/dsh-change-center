@@ -16,6 +16,7 @@ import { ChangeService } from './services/ChangeService.ts'
 import { SessionService } from './services/SessionService.ts'
 import { ApplyService } from './services/ApplyService.ts'
 import { SnapshotService } from './services/SnapshotService.ts'
+import { JobService } from './services/JobService.ts'
 import { GitService } from './git/GitService.ts'
 import { VerificationService } from './verification/VerificationService.ts'
 import { AIReviewService } from './review/AIReviewService.ts'
@@ -67,6 +68,7 @@ export type { NewFileChange, ChangeService } from './services/ChangeService.ts'
 export type { SessionService } from './services/SessionService.ts'
 export type { ApplyService, ApplyResult } from './services/ApplyService.ts'
 export type { SnapshotService, RollbackResult } from './services/SnapshotService.ts'
+export type { JobService, Job, JobStatus } from './services/JobService.ts'
 export type { GitService } from './git/GitService.ts'
 export type { VerificationService } from './verification/VerificationService.ts'
 export type { AIReviewService } from './review/AIReviewService.ts'
@@ -86,6 +88,7 @@ export function apply(ctx: Context): void {
   ctx.plugin(SessionService)
   ctx.plugin(ApplyService)
   ctx.plugin(SnapshotService)
+  ctx.plugin(JobService)
 
   // Phase-3 intelligence services.
   ctx.plugin(GitService)

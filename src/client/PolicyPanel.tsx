@@ -8,6 +8,7 @@ import { createElement, useEffect, useState, type ReactElement } from 'react'
 import type { ChangeCenterApi, WirePolicy } from './index.ts'
 import { POLICY_ACTION_ZH, POLICY_NAME_ZH } from './i18n.ts'
 import baseCss from './styles.module.css'
+import css from './PolicyPanel.module.css'
 
 /** Props for the policy panel. */
 export interface PolicyPanelProps {
@@ -33,24 +34,20 @@ export function PolicyPanel(props: PolicyPanelProps): ReactElement {
 
   return createElement('div', { className: baseCss.card },
     createElement('div', { className: baseCss.cardTitle }, '策略'),
-    createElement('div', { style: { marginTop: 6 } },
-      policies.map(policy => createElement('div', { key: policy.id, style: rowStyle },
+    createElement('div', { className: css.list },
+      policies.map(policy => createElement('div', { key: policy.id, className: css.row },
         createElement('input', {
           type: 'checkbox',
           checked: policy.enabled,
           onChange: () => toggle(policy),
-          style: { cursor: 'pointer' },
+          className: css.toggle,
         }),
-        createElement('div', { style: { flex: 1, minWidth: 0 } },
-          createElement('div', { style: { fontSize: 12, fontWeight: 600 } }, POLICY_NAME_ZH[policy.id] ?? policy.name),
-          createElement('div', { style: { fontSize: 11, color: 'var(--dsw-alias-label-tertiary)' } },
+        createElement('div', { className: css.info },
+          createElement('div', { className: css.name }, POLICY_NAME_ZH[policy.id] ?? policy.name),
+          createElement('div', { className: css.meta },
             `${POLICY_ACTION_ZH[policy.action] ?? policy.action} · 优先级 ${policy.priority}`),
         ),
       )),
     ),
   )
-}
-
-const rowStyle: Record<string, string | number> = {
-  display: 'flex', gap: 8, alignItems: 'flex-start', padding: '3px 0',
 }

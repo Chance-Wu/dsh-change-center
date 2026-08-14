@@ -59,8 +59,9 @@ export class AIReviewService extends Service {
    * @param sessionId - the change session id.
    * @param sessions - the session service (to read the session's changes).
    * @param workspace - workspace path, for context.
+   * @param opts - optional cancellation signal (honored by the LLM stream).
    */
-  async review(sessionId: string, sessions: SessionService, workspace: string): Promise<ReviewResult> {
+  async review(sessionId: string, sessions: SessionService, workspace: string, opts?: { signal?: AbortSignal }): Promise<ReviewResult> {
     const changes = sessions.changesOf(sessionId)
     const diffText = changes.length === 0
       ? '(no changes captured)'
@@ -97,6 +98,7 @@ export class AIReviewService extends Service {
       system: REVIEW_SYSTEM,
       messages,
       maxTokens: REVIEW_MAX_TOKENS,
+      ...opts?.signal !== undefined ? { signal: opts.signal } : {},
     })) {
       assembler.push(chunk)
     }
