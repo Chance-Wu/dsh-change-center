@@ -46,12 +46,18 @@ export function ChangeCenterSection(props: ChangeCenterSectionProps): ReactEleme
 
   return createElement('div', { className: css.section },
     createElement('div', { className: css.header }, '变更中心'),
+    // 流程引导:捕获 → 审查 → 应用 → 回滚。
+    createElement('div', { className: css.guide },
+      '变更流程:捕获(agent 修改文件) → 审查(逐条接受/拒绝) → 应用(写回工作区) → 回滚(撤销已应用变更)'),
     error !== null ? createElement('div', { className: css.error }, error) : null,
     createElement('div', { className: css.layout },
       // Left: session list.
       createElement('div', { className: css.sessionList },
         sessions.length === 0
-          ? createElement('div', { className: css.muted }, '暂无变更会话')
+          ? createElement('div', { className: css.muted },
+            '暂无变更会话。',
+            createElement('br'),
+            '让 agent 修改文件后,这里会出现按轮次(Turn)分组的变更。')
           : sessions.map(s => createElement('button', {
             key: s.id,
             className: css.sessionRow,

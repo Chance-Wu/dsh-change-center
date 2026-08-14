@@ -176,7 +176,8 @@ export class SessionService extends Service {
     const id = `session-${this.nextId++}`
     const created: ChangeSession = {
       id,
-      name: `Turn ${this.turnOf(session)}`,
+      // 名称含时间消除歧义:同一 agent 的多个 turn 会话可区分。
+      name: `Turn ${this.turnOf(session)} · ${hhmm()}`,
       status: 'active',
       agentSessionId: key,
       workspace: session.header.cwd ?? '',
@@ -209,7 +210,7 @@ export class SessionService extends Service {
     const id = `session-${this.nextId++}`
     const created: ChangeSession = {
       id,
-      name: `Session ${agentSessionId}`,
+      name: `Session ${shortId(agentSessionId)} · ${hhmm()}`,
       status: 'active',
       agentSessionId,
       workspace,
@@ -234,4 +235,16 @@ export class SessionService extends Service {
     }
     return turn
   }
+}
+
+/** Current wall-clock time as HH:MM (for unambiguous session names). */
+function hhmm(): string {
+  const now = new Date()
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  return `${pad(now.getHours())}:${pad(now.getMinutes())}`
+}
+
+/** Last 6 chars of an agent session id (for compact fallback names). */
+function shortId(id: string): string {
+  return id.length > 6 ? id.slice(-6) : id
 }

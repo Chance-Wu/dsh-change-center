@@ -98,6 +98,41 @@ describe('ChangeService', () => {
     })
     expect(seen).toEqual(['b.txt'])
   })
+
+  it('accept-all-and-apply approves pending and reports apply outcomes', async () => {
+    const ctx = await setup()
+    ctx.changeCenter.record({
+      sessionId: 'batch-a', cwd: '/tmp/ws', path: 'a.txt', operation: 'modify',
+      before: 'x\n', after: 'y\n', source: 'agent', toolName: 'edit',
+    })
+    ctx.changeCenter.record({
+      sessionId: 'batch-a', cwd: '/tmp/ws', path: 'b.txt', operation: 'create',
+      before: null, after: 'hi\n', source: 'agent', toolName: 'write',
+    })
+    ctx.changeCenter.record({
+      sessionId: 'batch-a', cwd: '/tmp/ws', kind: 'command', path: 'npm install', operation: 'execute',
+      before: null, after: 'npm install', source: 'agent', toolName: 'bash',
+    })
+    const result = await ctx.changeCenter.acceptAllAndApply('batch-a')
+    // 全部 pending 都被批准;命令变更直接 applied;文件变更因缺少应用引擎失败。
+    expect(result.approved).toHaveLength(3)
+    expect(result.applied).toHaveLength(1)
+    expect(result.failed).toHaveLength(2)
+    expect(result.skipped).toHaveLength(0)
+    expect(ctx.changeCenter.listBySession('batch-a').every(c => c.status !== 'pending')).toBe(true)
+  })
+
+  it('accept-all-and-apply skips non-pending changes', async () => {
+    const ctx = await setup()
+    ctx.changeCenter.record({
+      sessionId: 'batch-b', cwd: '/tmp/ws', path: 'a.txt', operation: 'modify',
+      before: 'x\n', after: 'y\n', source: 'agent', toolName: 'edit',
+    })
+    ctx.changeCenter.reject('change-1')
+    const result = await ctx.changeCenter.acceptAllAndApply('batch-b')
+    expect(result.approved).toHaveLength(0)
+    expect(result.skipped).toEqual(['change-1'])
+  })
 })
 
 describe('SessionService', () => {

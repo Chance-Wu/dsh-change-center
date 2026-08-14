@@ -8,7 +8,18 @@
   font-size: var(--dsw-font-m-16);
   font-weight: 700;
   color: var(--dsw-alias-label-primary);
-  margin-bottom: 12px;
+  margin-bottom: 4px;
+}
+
+/* 首次使用流程引导 */
+.guide {
+  font-size: var(--dsw-font-xxxs-11);
+  color: var(--dsw-alias-label-tertiary);
+  margin-bottom: 10px;
+  padding: 6px 10px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-2);
 }
 
 .error {

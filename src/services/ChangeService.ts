@@ -43,6 +43,18 @@ export interface NewFileChange {
   toolCallId?: string
 }
 
+/** Result of {@link ChangeService.acceptAllAndApply}. */
+export interface AcceptAllResult {
+  /** Changes approved (pending → approved). */
+  approved: string[]
+  /** Approved changes successfully applied (incl. command/external). */
+  applied: string[]
+  /** Changes skipped (not pending / already applied). */
+  skipped: string[]
+  /** Changes that failed to apply, with a reason. */
+  failed: { id: string; message: string }[]
+}
+
 /** Valid transition map of the review state machine. */
 const TRANSITIONS: Record<ChangeStatus, ChangeStatus[]> = {
   // failed covers apply-attempt failures from any reviewable state.
@@ -287,5 +299,33 @@ export class ChangeService extends Service {
       if (change.status === 'pending') updated.push(this.reject(change.id))
     }
     return updated
+  }
+
+  /**
+   * Accept-and-apply every pending change in a session: approve each pending
+   * change, then apply it (command/external changes are marked applied; file
+   * changes need the apply/snapshot engines). Failures do not interrupt the
+   * rest; already-applied or non-pending changes are reported as skipped.
+   */
+  async acceptAllAndApply(sessionId: string): Promise<AcceptAllResult> {
+    const result: AcceptAllResult = { approved: [], applied: [], skipped: [], failed: [] }
+    for (const change of this.listBySession(sessionId)) {
+      if (change.status !== 'pending') {
+        result.skipped.push(change.id)
+        continue
+      }
+      this.approve(change.id)
+      result.approved.push(change.id)
+      const outcome = await this.apply(change.id)
+      if (outcome.kind === 'applied') {
+        result.applied.push(change.id)
+      } else {
+        const message = outcome.kind === 'conflict'
+          ? `external modification detected (current ${outcome.currentHash.slice(0, 8)} ≠ expected ${outcome.beforeHash.slice(0, 8)})`
+          : outcome.message
+        result.failed.push({ id: change.id, message })
+      }
+    }
+    return result
   }
 }

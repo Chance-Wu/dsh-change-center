@@ -170,3 +170,118 @@
   font-size: var(--dsw-font-xxs-12);
   color: var(--dsw-alias-label-tertiary);
 }
+
+/* 展示模式切换（按扩展名 / 目录树） */
+.modeToggle {
+  margin-left: auto;
+  display: inline-flex;
+  gap: 2px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.modeBtn {
+  border: none;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: var(--dsw-font-xxxs-11);
+  font-family: inherit;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+
+.modeBtnActive {
+  border: none;
+  background: var(--dsw-alias-interactive-bg-active);
+  color: var(--dsw-alias-label-primary);
+  font-size: var(--dsw-font-xxxs-11);
+  font-family: inherit;
+  padding: 2px 8px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+/* 按扩展名分组 */
+.extGroup {
+  margin-bottom: 4px;
+}
+
+.groupHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 6px;
+  font-size: var(--dsw-font-xxxs-11);
+  font-weight: 700;
+  color: var(--dsw-alias-label-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.groupLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.groupStats {
+  margin-left: auto;
+  flex: none;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* 目录统计 + 工具栏 */
+.dirStats {
+  margin-left: auto;
+  flex: none;
+  font-size: var(--dsw-font-xxxs-11);
+  color: var(--dsw-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.dirToolbar {
+  display: flex;
+  gap: 4px;
+  padding: 2px 6px 4px;
+}
+
+.dirArea {
+  min-width: 0;
+}
+
+/* 文件行 hover 快捷操作（仅 pending） */
+.rowActions {
+  flex: none;
+  margin-left: 6px;
+  display: none;
+  gap: 4px;
+}
+
+.fileRow:hover .rowActions {
+  display: inline-flex;
+}
+
+.actionApprove {
+  border: 1px solid var(--dsw-alias-state-success-primary);
+  background: transparent;
+  color: var(--dsw-alias-state-success-primary);
+  font-size: var(--dsw-font-xxxs-11);
+  font-family: inherit;
+  padding: 1px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.actionReject {
+  border: 1px solid var(--dsw-alias-state-error-primary);
+  background: transparent;
+  color: var(--dsw-alias-state-error-primary);
+  font-size: var(--dsw-font-xxxs-11);
+  font-family: inherit;
+  padding: 1px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+}

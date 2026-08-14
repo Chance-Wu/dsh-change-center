@@ -21,6 +21,7 @@ import type { FileChange } from '../models/FileChange.ts'
 import type { ChangeSession } from '../models/ChangeSession.ts'
 import type { ChangeEvent, ChangeRisk, ReviewFinding, ReviewResult, VerificationTask } from '../models/Phase3.ts'
 import type { ChangePolicy, FixRequest, FixResult } from '../models/Phase4.ts'
+import type { AcceptAllResult } from '../services/ChangeService.ts'
 import type { Job } from '../services/JobService.ts'
 import { ChangeCenterSection } from './ChangeCenterSection.tsx'
 import { ChangesTab, type ChangesTabInjected } from './ChangesTab.tsx'
@@ -61,6 +62,9 @@ export type WireChange = FileChange
 
 /** Wire shape of a change session — the host {@link ChangeSession} model. */
 export type WireSession = ChangeSession
+
+/** Wire shape of an accept-all-and-apply result — the host type. */
+export type WireAcceptAllResult = AcceptAllResult
 
 /** Result of a change action (apply/rollback). */
 export interface ActionResult {
@@ -116,6 +120,7 @@ export interface ChangeCenterApi {
   applyChange(id: string, force?: boolean): Promise<ActionResult>
   editChange(id: string, after: string): Promise<unknown>
   sessionAction(sessionId: string, action: 'accept-all' | 'reject-all'): Promise<{ updated: string[] }>
+  acceptAllAndApply(sessionId: string): Promise<WireAcceptAllResult>
   gitStatus(sessionId: string): Promise<GitResponse>
   gitDiff(sessionId: string): Promise<GitResponse>
   gitLog(sessionId: string): Promise<GitResponse>
@@ -158,6 +163,8 @@ export function apiOf(): ChangeCenterApi {
     editChange: (id, after) => postJson(`/api/change-center/changes/${id}/edit`, { after }),
     sessionAction: (sessionId, action) =>
       postJson(`/api/change-center/sessions/${sessionId}/${action}`).then(body => body as { updated: string[] }),
+    acceptAllAndApply: (sessionId) =>
+      postJson(`/api/change-center/sessions/${sessionId}/accept-all-apply`).then(body => (body as { result: WireAcceptAllResult }).result),
     gitStatus: (sessionId) => getJson(`/api/change-center/sessions/${sessionId}/git`).then(body => body as GitResponse),
     gitDiff: (sessionId) => getJson(`/api/change-center/sessions/${sessionId}/git/diff`).then(body => body as GitResponse),
     gitLog: (sessionId) => getJson(`/api/change-center/sessions/${sessionId}/git/log`).then(body => body as GitResponse),

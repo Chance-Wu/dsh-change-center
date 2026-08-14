@@ -59,7 +59,10 @@ export function ChangesTab(props: ChangesTabProps): ReactElement {
         createElement('div', { className: css.emptyText },
           '本会话暂无捕获的变更。',
           createElement('br'),
-          '让 agent 修改文件后，变更会自动出现在这里。'),
+          createElement('br'),
+          '① 让 agent 修改文件 → ② 变更自动出现在这里 → ③ 逐条审查(接受/拒绝)或「全部接收并应用」。',
+          createElement('br'),
+          '全部会话可在 设置 → 变更中心 查看。'),
       ),
     )
   }

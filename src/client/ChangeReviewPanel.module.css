@@ -14,6 +14,88 @@
   font-size: var(--dsw-font-xxs-12);
 }
 
+/* 会话级操作栏：待审徽标 + 全部接收并应用 + 结果汇总。 */
+.actionBar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.pendingBadge {
+  font-size: var(--dsw-font-xxs-12);
+  font-weight: 600;
+  color: var(--dsw-alias-state-warn-primary);
+  border: 1px solid var(--dsw-alias-state-warn-primary);
+  border-radius: 999px;
+  padding: 2px 10px;
+  background: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 10%, transparent);
+}
+
+.pendingNone {
+  font-size: var(--dsw-font-xxs-12);
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.acceptError {
+  font-size: var(--dsw-font-xxs-12);
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.resultSummary {
+  flex-basis: 100%;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 10px;
+  background: var(--dsw-alias-bg-layer-2);
+  padding: 8px 12px;
+  font-size: var(--dsw-font-xxs-12);
+}
+
+.resultHead {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.resultOk {
+  font-weight: 600;
+  color: var(--dsw-alias-state-success-primary);
+}
+
+.resultFail {
+  font-weight: 600;
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.resultMuted {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.resultClose {
+  margin-left: auto;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: var(--dsw-font-m-16);
+  color: var(--dsw-alias-label-tertiary);
+  line-height: 1;
+  padding: 0 2px;
+}
+
+.resultFailList {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  max-height: 120px;
+  overflow: auto;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.resultFailId {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  margin-right: 6px;
+}
+
 .body {
   display: flex;
   gap: 12px;

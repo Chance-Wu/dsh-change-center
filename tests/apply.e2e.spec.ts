@@ -182,4 +182,24 @@ describe('Apply Engine e2e', () => {
     // Editing an applied change would desync the record from disk.
     expect(() => ctx.changeCenter.edit(change.id, 'edited\n')).toThrow(/roll back first/)
   })
+
+  it('accept-all-and-apply approves and applies every pending change', async () => {
+    const ctx = await setup()
+    const agent = agentWithSession('accept-apply-1')
+    const a = join(tempDir, 'A.java')
+    const b = join(tempDir, 'B.java')
+    writeFileSync(a, 'old a\n')
+    writeFileSync(b, 'old b\n')
+
+    await executeWrite(ctx, { file_path: a, content: 'new a\n' }, agent)
+    await executeWrite(ctx, { file_path: b, content: 'new b\n' }, agent)
+
+    const result = await ctx.changeCenter.acceptAllAndApply('accept-apply-1')
+    expect(result.approved).toHaveLength(2)
+    expect(result.applied).toHaveLength(2)
+    expect(result.failed).toHaveLength(0)
+    expect(readFileSync(a, 'utf8')).toBe('new a\n')
+    expect(readFileSync(b, 'utf8')).toBe('new b\n')
+    expect(ctx.changeCenter.listBySession('accept-apply-1').every(c => c.status === 'applied')).toBe(true)
+  })
 })

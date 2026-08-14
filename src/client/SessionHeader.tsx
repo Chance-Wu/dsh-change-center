@@ -34,12 +34,16 @@ function statusClass(status: string): string {
 export function SessionHeader(props: SessionHeaderProps): ReactElement {
   const { session } = props
   return createElement('div', { className: css.header },
-    createElement('span', { className: css.title }, session.name),
+    createElement('span', {
+      className: css.title,
+      // Turn 指代说明:一轮 = agent 一次完整回复周期内捕获的变更集合。
+      title: '「Turn N」指 agent 第 N 轮回复周期内捕获的变更集合',
+    }, session.name),
     createElement('span', { className: statusClass(session.status) }, STATUS_ZH[session.status] ?? session.status),
-    createElement('span', { className: css.meta, title: `${session.agentSessionId} · ${session.workspace}` },
-      `${session.agentSessionId} · ${session.workspace}`),
+    createElement('span', { className: css.meta },
+      `${shortId(session.agentSessionId)} · ${session.changeIds.length} 项变更`),
     createElement('span', { className: css.stats },
-      createElement('span', { className: css.statsFiles }, `${session.statistics.files} 个文件变更`),
+      createElement('span', { className: css.statsFiles }, `${session.statistics.files} 个文件`),
       session.statistics.additions > 0
         ? createElement('span', { className: css.statsAdd }, `+${session.statistics.additions}`)
         : null,
@@ -48,4 +52,9 @@ export function SessionHeader(props: SessionHeaderProps): ReactElement {
         : null,
     ),
   )
+}
+
+/** Last 6 chars of an agent session id (compact display, full in title). */
+function shortId(id: string): string {
+  return id.length > 6 ? id.slice(-6) : id
 }

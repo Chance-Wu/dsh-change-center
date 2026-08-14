@@ -2,18 +2,23 @@
  * Change review panel: the shared review surface for ONE change session —
  * file tree on the left, diff viewer + review bar in the center, and the
  * intelligence column (git/review/risk/verification/policy) on the right.
- * on the right. Used both by the settings Change Center section and the
- * conversation Changes tab.
+ * Used both by the settings Change Center section and the conversation
+ * Changes tab.
+ *
+ * The header action bar hosts the session-level 「全部接收并应用」 operation
+ * (approve every pending change and apply it) with a result summary, and the
+ * tree receives approve/reject quick-action callbacks.
  * @module dsh-change-center/client
  */
 
 import { createElement, useEffect, useState, type ReactElement } from 'react'
-import type { ChangeCenterApi, WireChange } from './index.ts'
+import type { ChangeCenterApi, WireAcceptAllResult, WireChange } from './index.ts'
 import { ChangeTree } from './ChangeTree.tsx'
 import { DiffViewer } from './DiffViewer.tsx'
 import { ReviewBar } from './ReviewBar.tsx'
 import { SessionHeader } from './SessionHeader.tsx'
 import { IntelligencePanel } from './IntelligencePanel.tsx'
+import baseCss from './styles.module.css'
 import css from './ChangeReviewPanel.module.css'
 
 /** Props for the review panel. */
@@ -48,6 +53,9 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
   const [selectedChange, setSelectedChange] = useState<string | null>(null)
   const [diffMode, setDiffMode] = useState<'unified' | 'side-by-side' | 'editor'>('unified')
   const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [acceptResult, setAcceptResult] = useState<WireAcceptAllResult | null>(null)
+  const [acceptError, setAcceptError] = useState<string | null>(null)
 
   const refresh = (): void => {
     api.sessionChanges(sessionId)
@@ -72,9 +80,27 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
     onChanged?.()
   }
 
+  /** Tree quick actions + the review bar share one action path. */
+  const quickAction = (id: string, action: 'approve' | 'reject'): void => {
+    api.changeAction(id, action)
+      .then(afterAction)
+      .catch(err => setError(err instanceof Error ? err.message : String(err)))
+  }
+
+  const acceptAllAndApply = (): void => {
+    setBusy(true)
+    setAcceptError(null)
+    api.acceptAllAndApply(sessionId)
+      .then(result => { setAcceptResult(result); afterAction() })
+      .catch(err => setAcceptError(err instanceof Error ? err.message : String(err)))
+      .finally(() => setBusy(false))
+  }
+
   // 只审查真实文件变更：命令执行等「没有变更」的记录不进入文件树与 diff。
   const fileChanges = changes.filter(isReviewableChange)
   const change = fileChanges.find(c => c.id === selectedChange) ?? null
+  const pendingCount = fileChanges.filter(c => c.status === 'pending').length
+  const failedCount = acceptResult?.failed.length ?? 0
 
   return createElement('div', { className: css.panel },
     error !== null ? createElement('p', { className: css.error }, error) : null,
@@ -84,11 +110,47 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
         createdAt: 0, updatedAt: 0,
       },
     }),
+    // Session-level action bar: pending badge + 全部接收并应用 + result summary.
+    createElement('div', { className: css.actionBar },
+      pendingCount > 0
+        ? createElement('span', { className: css.pendingBadge }, `${pendingCount} 项变更待审查`)
+        : createElement('span', { className: css.pendingNone }, '无待审查变更'),
+      createElement('button', {
+        onClick: acceptAllAndApply,
+        disabled: busy || pendingCount === 0,
+        className: baseCss.buttonPrimary,
+      }, busy ? '处理中…' : '全部接收并应用'),
+      acceptError !== null
+        ? createElement('span', { className: css.acceptError }, acceptError)
+        : null,
+      acceptResult !== null
+        ? createElement('div', { className: css.resultSummary },
+          createElement('div', { className: css.resultHead },
+            createElement('span', { className: css.resultOk }, `已接收并应用 ${acceptResult.applied.length}`),
+            createElement('span', { className: css.resultMuted }, `已接收 ${acceptResult.approved.length} · 跳过 ${acceptResult.skipped.length}`),
+            failedCount > 0
+              ? createElement('span', { className: css.resultFail }, `失败 ${failedCount}`)
+              : null,
+            createElement('button', { onClick: () => setAcceptResult(null), className: css.resultClose }, '×'),
+          ),
+          acceptResult.failed.length > 0
+            ? createElement('ul', { className: css.resultFailList },
+              acceptResult.failed.map(item => createElement('li', { key: item.id },
+                createElement('span', { className: css.resultFailId }, item.id),
+                createElement('span', null, item.message),
+              )),
+            )
+            : null,
+        )
+        : null,
+    ),
     createElement('div', { className: css.body },
       createElement(ChangeTree, {
         changes: fileChanges,
         selected: selectedChange,
         onSelect: setSelectedChange,
+        onApprove: (id) => quickAction(id, 'approve'),
+        onReject: (id) => quickAction(id, 'reject'),
       }),
       change === null
         ? createElement('div', { className: css.centerEmpty },

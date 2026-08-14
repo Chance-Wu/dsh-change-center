@@ -1,7 +1,9 @@
 /**
- * Change tree: one row per changed file with an A/M/D marker, grouped by
- * directory segments. Directories are collapsible; selecting a file only
- * opens its diff inline (never an external application).
+ * Change tree: the review surface's file list with two display modes —
+ * 「按扩展名」(default, groups merged as `*.ext`) and 「目录树」(nested
+ * directories, collapsible). Paths are shown relative to the change's
+ * workspace; rows carry A/M/D markers, ±line counts, and hover quick actions
+ * (接受/拒绝) for pending changes.
  *
  * The tree receives ALREADY-filtered file changes (see
  * {@link ChangeReviewPanel.isReviewableChange}) — command executions are not
@@ -20,7 +22,14 @@ export interface ChangeTreeProps {
   changes: WireChange[]
   selected: string | null
   onSelect: (id: string) => void
+  /** Quick approve from a tree row (pending changes only). */
+  onApprove?: (id: string) => void
+  /** Quick reject from a tree row (pending changes only). */
+  onReject?: (id: string) => void
 }
+
+/** Display mode: extension groups (`*.ext`) or the directory tree. */
+type TreeMode = 'ext' | 'dir'
 
 /** Mark → CSS class (create/modify/delete). */
 function markClass(operation: string): string {
@@ -32,32 +41,95 @@ function markClass(operation: string): string {
   }
 }
 
-/** Build a nested directory tree from flat file paths. */
+/** Path relative to the change's workspace; absolute/outside paths verbatim. */
+export function relativePath(change: { path: string; cwd: string }): string {
+  const base = (change.cwd ?? '').replace(/\/+$/, '')
+  if (base.length > 0 && change.path.startsWith(`${base}/`)) {
+    return change.path.slice(base.length + 1)
+  }
+  return change.path
+}
+
+/** Extension of a file path ('' for none); the `.` must not start the name. */
+function extensionOf(path: string): string {
+  const name = path.split('/').pop() ?? path
+  const dot = name.lastIndexOf('.')
+  return dot > 0 ? name.slice(dot + 1) : ''
+}
+
+/** One extension group: merged files plus aggregate line counts. */
+interface ExtGroup {
+  label: string
+  changes: WireChange[]
+  additions: number
+  deletions: number
+}
+
+function groupByExtension(changes: WireChange[]): ExtGroup[] {
+  const map = new Map<string, ExtGroup>()
+  for (const change of changes) {
+    const ext = extensionOf(change.path)
+    const key = ext.length > 0 ? ext : '(other)'
+    let group = map.get(key)
+    if (group === undefined) {
+      group = { label: ext.length > 0 ? `*.${ext}` : '(其他)', changes: [], additions: 0, deletions: 0 }
+      map.set(key, group)
+    }
+    group.changes.push(change)
+    const counts = countDiff(change.before, change.after)
+    group.additions += counts.additions
+    group.deletions += counts.deletions
+  }
+  return [...map.values()].sort((a, b) => a.label.localeCompare(b.label))
+}
+
+/** Build a nested directory tree from workspace-relative file paths. */
 interface TreeNode {
   name: string
   path: string
   children: Map<string, TreeNode>
   change: WireChange | null
+  /** Aggregate file count / line counts under this node (incl. files). */
+  files: number
+  additions: number
+  deletions: number
 }
 
 function buildTree(changes: WireChange[]): TreeNode {
-  const root: TreeNode = { name: '', path: '', children: new Map(), change: null }
+  const root: TreeNode = { name: '', path: '', children: new Map(), change: null, files: 0, additions: 0, deletions: 0 }
   for (const change of changes) {
-    const segments = change.path.split('/')
+    const segments = relativePath(change).split('/')
     let node = root
     let current = ''
     for (const segment of segments.slice(0, -1)) {
       current = current.length > 0 ? `${current}/${segment}` : segment
       let child = node.children.get(segment)
       if (child === undefined) {
-        child = { name: segment, path: current, children: new Map(), change: null }
+        child = { name: segment, path: current, children: new Map(), change: null, files: 0, additions: 0, deletions: 0 }
         node.children.set(segment, child)
       }
       node = child
     }
-    const fileName = segments[segments.length - 1] ?? change.path
+    const fileName = segments[segments.length - 1] ?? relativePath(change)
     const leafPath = current.length > 0 ? `${current}/${fileName}` : fileName
-    node.children.set(fileName, { name: fileName, path: leafPath, children: new Map(), change })
+    const counts = countDiff(change.before, change.after)
+    node.children.set(fileName, {
+      name: fileName,
+      path: leafPath,
+      children: new Map(),
+      change,
+      files: 1,
+      additions: counts.additions,
+      deletions: counts.deletions,
+    })
+    // Roll the leaf's stats up to every ancestor directory.
+    let ancestor: TreeNode = root
+    for (const segment of segments.slice(0, -1)) {
+      ancestor = ancestor.children.get(segment) as TreeNode
+      ancestor.files += 1
+      ancestor.additions += counts.additions
+      ancestor.deletions += counts.deletions
+    }
   }
   return root
 }
@@ -79,6 +151,43 @@ function Chevron(props: { collapsed: boolean }): ReactElement {
     strokeLinecap: 'round',
     strokeLinejoin: 'round',
   }))
+}
+
+/** One file row: mark + relative path + counts + hover quick actions. */
+function renderFileRow(
+  change: WireChange,
+  props: ChangeTreeProps,
+  depth: number,
+): ReactElement {
+  const mark = OPERATION_MARK[change.operation] ?? '?'
+  const counts = countDiff(change.before, change.after)
+  const pending = change.status === 'pending'
+  return createElement('button', {
+    key: change.id,
+    className: css.fileRow,
+    'data-selected': props.selected === change.id,
+    onClick: () => props.onSelect(change.id),
+    style: { paddingLeft: 6 + depth * 14 + 14 },
+  },
+  createElement('span', { className: markClass(change.operation) }, mark),
+  createElement('span', { className: css.fileName }, relativePath(change)),
+  counts.additions + counts.deletions > 0
+    ? createElement('span', { className: css.counts },
+      counts.additions > 0 ? createElement('span', { className: css.countAdd }, `+${counts.additions}`) : null,
+      counts.deletions > 0 ? createElement('span', { className: css.countDel }, `-${counts.deletions}`) : null,
+    )
+    : null,
+  pending && (props.onApprove !== undefined || props.onReject !== undefined)
+    ? createElement('span', { className: css.rowActions, onClick: (event: MouseEvent) => event.stopPropagation() },
+      props.onApprove !== undefined
+        ? createElement('button', { className: css.actionApprove, onClick: () => props.onApprove?.(change.id) }, '接受')
+        : null,
+      props.onReject !== undefined
+        ? createElement('button', { className: css.actionReject, onClick: () => props.onReject?.(change.id) }, '拒绝')
+        : null,
+    )
+    : null,
+  )
 }
 
 /** Render one directory node recursively (sorted: dirs first, then files). */
@@ -105,60 +214,82 @@ function renderNode(
     },
     createElement(Chevron, { collapsed: isCollapsed }),
     createElement('span', { className: css.dirName }, dir.name),
+    createElement('span', { className: css.dirStats },
+      `${dir.files} · +${dir.additions} -${dir.deletions}`),
     ))
     if (!isCollapsed) {
       out.push(...renderNode(dir, depth + 1, props, collapsed, onToggle))
     }
   }
   for (const file of files) {
-    const change = file.change as WireChange
-    const mark = OPERATION_MARK[change.operation] ?? '?'
-    const counts = countDiff(change.before, change.after)
-    // 只内联选中显示 diff，绝不打开外部应用（无 openPath/openFile 调用）。
-    out.push(createElement('button', {
-      key: change.id,
-      className: css.fileRow,
-      'data-selected': props.selected === change.id,
-      onClick: () => props.onSelect(change.id),
-      style: { paddingLeft: 6 + depth * 14 + 14 },
-    },
-    createElement('span', { className: markClass(change.operation) }, mark),
-    createElement('span', { className: css.fileName }, change.path.split('/').pop()),
-    counts.additions + counts.deletions > 0
-      ? createElement('span', { className: css.counts },
-        counts.additions > 0 ? createElement('span', { className: css.countAdd }, `+${counts.additions}`) : null,
-        counts.deletions > 0 ? createElement('span', { className: css.countDel }, `-${counts.deletions}`) : null,
-      )
-      : null,
-    ))
+    out.push(renderFileRow(file.change as WireChange, props, depth))
   }
   return out
 }
 
-/** The file tree for a session's changes. */
+/** The file list for a session's changes (ext-group mode by default). */
 export function ChangeTree(props: ChangeTreeProps): ReactElement {
+  const [mode, setMode] = useState<TreeMode>('ext')
+  const groups = useMemo(() => groupByExtension(props.changes), [props.changes])
   const root = useMemo(() => buildTree(props.changes), [props.changes])
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set())
 
   const toggle = (path: string): void => {
     setCollapsed(prev => {
       const next = new Set(prev)
-      if (next.has(path)) {
-        next.delete(path)
-      } else {
-        next.add(path)
-      }
+      if (next.has(path)) next.delete(path)
+      else next.add(path)
       return next
     })
+  }
+
+  const setAllCollapsed = (collapse: boolean): void => {
+    setCollapsed(collapse ? new Set(allDirPaths(root)) : new Set())
   }
 
   return createElement('div', { className: css.tree },
     createElement('div', { className: css.title },
       createElement('span', null, '变更'),
       createElement('span', { className: css.titleCount }, props.changes.length),
+      createElement('span', { className: css.modeToggle },
+        createElement('button', {
+          className: mode === 'ext' ? css.modeBtnActive : css.modeBtn,
+          onClick: () => setMode('ext'),
+        }, '*.ext'),
+        createElement('button', {
+          className: mode === 'dir' ? css.modeBtnActive : css.modeBtn,
+          onClick: () => setMode('dir'),
+        }, '目录'),
+      ),
     ),
     props.changes.length === 0
       ? createElement('div', { className: css.empty }, '暂无文件变更')
-      : renderNode(root, 0, props, collapsed, toggle),
+      : mode === 'ext'
+        ? groups.map(group => createElement('div', { key: group.label, className: css.extGroup },
+          createElement('div', { className: css.groupHeader },
+            createElement('span', { className: css.groupLabel }, group.label),
+            createElement('span', { className: css.groupStats },
+              `${group.changes.length} 个 · +${group.additions} -${group.deletions}`),
+          ),
+          group.changes.map(change => renderFileRow(change, props, 0)),
+        ))
+        : createElement('div', { className: css.dirArea },
+          createElement('div', { className: css.dirToolbar },
+            createElement('button', { className: css.modeBtn, onClick: () => setAllCollapsed(true) }, '全部折叠'),
+            createElement('button', { className: css.modeBtn, onClick: () => setAllCollapsed(false) }, '全部展开'),
+          ),
+          renderNode(root, 0, props, collapsed, toggle),
+        ),
   )
+}
+
+/** Collect every directory path under a tree node (for collapse-all). */
+function allDirPaths(node: TreeNode): string[] {
+  const out: string[] = []
+  for (const child of node.children.values()) {
+    if (child.change === null) {
+      out.push(child.path, ...allDirPaths(child))
+    }
+  }
+  return out
 }
