@@ -306,10 +306,20 @@ export class ChangeService extends Service {
    * change, then apply it (command/external changes are marked applied; file
    * changes need the apply/snapshot engines). Failures do not interrupt the
    * rest; already-applied or non-pending changes are reported as skipped.
+   *
+   * Changes are processed newest-first with one change per path: superseded
+   * writes to the same file (the review surface shows only the latest) are
+   * skipped so a bulk apply never re-writes an older intermediate state.
    */
   async acceptAllAndApply(sessionId: string): Promise<AcceptAllResult> {
     const result: AcceptAllResult = { approved: [], applied: [], skipped: [], failed: [] }
+    const seenPaths = new Set<string>()
     for (const change of this.listBySession(sessionId)) {
+      if (seenPaths.has(change.path)) {
+        result.skipped.push(change.id)
+        continue
+      }
+      seenPaths.add(change.path)
       if (change.status !== 'pending') {
         result.skipped.push(change.id)
         continue

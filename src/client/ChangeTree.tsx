@@ -50,6 +50,22 @@ export function relativePath(change: { path: string; cwd: string }): string {
   return change.path
 }
 
+/**
+ * Deduplicate changes by path, keeping the FIRST occurrence. The list is
+ * newest-first (createdAt desc), so the latest change for a path wins and
+ * superseded writes to the same file disappear from the review surface.
+ */
+export function dedupeByPath(changes: WireChange[]): WireChange[] {
+  const seen = new Set<string>()
+  const out: WireChange[] = []
+  for (const change of changes) {
+    if (seen.has(change.path)) continue
+    seen.add(change.path)
+    out.push(change)
+  }
+  return out
+}
+
 /** Extension of a file path ('' for none); the `.` must not start the name. */
 export function extensionOf(path: string): string {
   const name = path.split('/').pop() ?? path
@@ -228,9 +244,9 @@ function renderNode(
   return out
 }
 
-/** The file list for a session's changes (ext-group mode by default). */
+/** The file list for a session's changes (directory tree by default). */
 export function ChangeTree(props: ChangeTreeProps): ReactElement {
-  const [mode, setMode] = useState<TreeMode>('ext')
+  const [mode, setMode] = useState<TreeMode>('dir')
   const groups = useMemo(() => groupByExtension(props.changes), [props.changes])
   const root = useMemo(() => buildTree(props.changes), [props.changes])
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set())

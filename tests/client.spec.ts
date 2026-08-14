@@ -5,7 +5,7 @@
  */
 
 import { describe, expect, it, vi, afterEach } from 'vitest'
-import { relativePath, extensionOf, groupByExtension } from '../src/client/ChangeTree.tsx'
+import { relativePath, extensionOf, groupByExtension, dedupeByPath } from '../src/client/ChangeTree.tsx'
 import { submitJobHandle } from '../src/client/index.ts'
 import type { WireChange } from '../src/client/index.ts'
 
@@ -73,6 +73,17 @@ describe('groupByExtension', () => {
     expect(groups.map(group => group.label)).toEqual(['(其他)', '*.ts'])
     expect(groups[0]?.additions).toBe(0)
     expect(groups[0]?.deletions).toBe(1)
+  })
+})
+
+describe('dedupeByPath', () => {
+  it('keeps the first (latest) change per path and drops duplicates', () => {
+    const latest = change({ id: 'c2', path: '/ws/src/a.ts', status: 'applied' })
+    const older = change({ id: 'c1', path: '/ws/src/a.ts' })
+    const other = change({ id: 'c3', path: '/ws/src/b.ts' })
+    // 列表为最新在前;去重后同路径只保留首个。
+    const deduped = dedupeByPath([latest, older, other])
+    expect(deduped.map(c => c.id)).toEqual(['c2', 'c3'])
   })
 })
 

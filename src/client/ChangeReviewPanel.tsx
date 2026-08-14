@@ -13,7 +13,7 @@
 
 import { createElement, useEffect, useState, type ReactElement } from 'react'
 import type { ChangeCenterApi, WireAcceptAllResult, WireChange } from './index.ts'
-import { ChangeTree } from './ChangeTree.tsx'
+import { ChangeTree, dedupeByPath } from './ChangeTree.tsx'
 import { DiffViewer } from './DiffViewer.tsx'
 import { ReviewBar } from './ReviewBar.tsx'
 import { SessionHeader } from './SessionHeader.tsx'
@@ -96,8 +96,9 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
       .finally(() => setBusy(false))
   }
 
-  // 只审查真实文件变更：命令执行等「没有变更」的记录不进入文件树与 diff。
-  const fileChanges = changes.filter(isReviewableChange)
+  // 只审查真实文件变更：命令执行等「没有变更」的记录不进入文件树与 diff；
+  // 同一文件的多次写入只保留最新一次（按路径去重）。
+  const fileChanges = dedupeByPath(changes.filter(isReviewableChange))
   const change = fileChanges.find(c => c.id === selectedChange) ?? null
   const pendingCount = fileChanges.filter(c => c.status === 'pending').length
   const failedCount = acceptResult?.failed.length ?? 0
