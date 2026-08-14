@@ -40,6 +40,8 @@ export function ChangeCenterSection(props: ChangeCenterSectionProps): ReactEleme
 
   useEffect(() => {
     refreshSessions()
+    // 事件驱动:host 推送变更/会话事件时自动刷新列表(与 ChangesTab 一致)。
+    return api.subscribeEvents(() => refreshSessions())
   }, [])
 
   const session = sessions.find(s => s.id === selectedSession) ?? null

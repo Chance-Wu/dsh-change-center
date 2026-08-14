@@ -125,9 +125,9 @@ export interface ChangeCenterApi {
   gitDiff(sessionId: string): Promise<GitResponse>
   gitLog(sessionId: string): Promise<GitResponse>
   verificationList(sessionId: string): Promise<WireVerificationTask[]>
-  verificationRun(sessionId: string): Promise<WireVerificationTask | undefined>
+  verificationRun(sessionId: string): Promise<JobHandle<WireVerificationTask | undefined>>
   reviewGet(sessionId: string): Promise<WireReview | null>
-  reviewRun(sessionId: string): Promise<WireReview>
+  reviewRun(sessionId: string): Promise<JobHandle<WireReview>>
   riskGet(sessionId: string): Promise<WireRisk | null>
   riskAnalyze(sessionId: string): Promise<WireRisk>
   history(sessionId: string): Promise<WireHistoryEvent[]>
@@ -136,8 +136,8 @@ export interface ChangeCenterApi {
   policySave(policy: WirePolicy): Promise<WirePolicy[]>
   policyDelete(id: string): Promise<WirePolicy[]>
   fixList(sessionId: string): Promise<WireFixRequest[]>
-  fixRun(sessionId: string, reviewId: string, findingId: string, changeId: string): Promise<WireFixResult>
-  loopRun(sessionId: string, maxIterations?: number): Promise<{ result: { iterations: number; stopped: string } }>
+  fixRun(sessionId: string, reviewId: string, findingId: string, changeId: string): Promise<JobHandle<WireFixResult>>
+  loopRun(sessionId: string, maxIterations?: number): Promise<JobHandle<{ result: { iterations: number; stopped: string } }>>
   jobGet(id: string): Promise<{ job: WireJob | null }>
   jobCancel(id: string): Promise<{ job: WireJob | null }>
   sessionJobs(sessionId: string): Promise<{ jobs: WireJob[] }>
@@ -170,13 +170,13 @@ export function apiOf(): ChangeCenterApi {
     gitLog: (sessionId) => getJson(`/api/change-center/sessions/${sessionId}/git/log`).then(body => body as GitResponse),
     verificationList: (sessionId) =>
       getJson(`/api/change-center/sessions/${sessionId}/verification`).then(body => (body as { tasks: WireVerificationTask[] }).tasks),
-    verificationRun: (sessionId) => submitJobAndWait(
+    verificationRun: (sessionId) => submitJobHandle(
       () => postJson(`/api/change-center/sessions/${sessionId}/verification/run`) as Promise<{ job: { id: string } }>,
       job => job.result as WireVerificationTask | undefined,
     ),
     reviewGet: (sessionId) =>
       getJson(`/api/change-center/sessions/${sessionId}/review`).then(body => (body as { review: WireReview | null }).review),
-    reviewRun: (sessionId) => submitJobAndWait(
+    reviewRun: (sessionId) => submitJobHandle(
       () => postJson(`/api/change-center/sessions/${sessionId}/review/run`) as Promise<{ job: { id: string } }>,
       job => job.result as WireReview,
     ),
@@ -193,11 +193,11 @@ export function apiOf(): ChangeCenterApi {
     policyDelete: (id) => postJson(`/api/change-center/policies/${id}/delete`).then(body => (body as { policies: WirePolicy[] }).policies),
     fixList: (sessionId) =>
       getJson(`/api/change-center/sessions/${sessionId}/fix`).then(body => (body as { requests: WireFixRequest[] }).requests),
-    fixRun: (sessionId, reviewId, findingId, changeId) => submitJobAndWait(
+    fixRun: (sessionId, reviewId, findingId, changeId) => submitJobHandle(
       () => postJson(`/api/change-center/sessions/${sessionId}/fix/run`, { reviewId, findingId, changeId }) as Promise<{ job: { id: string } }>,
       job => job.result as WireFixResult,
     ),
-    loopRun: (sessionId, maxIterations) => submitJobAndWait(
+    loopRun: (sessionId, maxIterations) => submitJobHandle(
       () => postJson(`/api/change-center/sessions/${sessionId}/loop/run`, { maxIterations }) as Promise<{ job: { id: string } }>,
       job => ({ result: job.result as { iterations: number; stopped: string } }),
     ),
@@ -215,23 +215,51 @@ export function apiOf(): ChangeCenterApi {
   }
 }
 
-/** Poll the returned job until it settles, then unwrap its result. */
-async function submitJobAndWait<T>(
+/** A running background job handle: await `done`, or cancel it. */
+export interface JobHandle<T> {
+  jobId: string
+  /** Resolves with the unwrapped result when the job settles. */
+  done: Promise<T>
+  /** Cancel the job (aborts the host-side work); callers may fire-and-forget. */
+  cancel: () => Promise<void>
+}
+
+/**
+ * Submit a background job and return a handle immediately: `done` polls the
+ * job endpoint until it settles, `cancel` aborts it via the jobs API.
+ */
+function submitJobHandle<T>(
   submit: () => Promise<{ job: { id: string } }>,
   unwrap: (job: { status: string; result?: unknown; error?: string }) => T,
   timeoutMs = 180_000,
-): Promise<T> {
-  const { job } = await submit()
-  const deadline = Date.now() + timeoutMs
-  for (;;) {
-    const body = await getJson(`/api/change-center/jobs/${job.id}`) as { job: { status: string; result?: unknown; error?: string } }
-    const current = body.job
-    if (current.status === 'completed') return unwrap(current)
-    if (current.status === 'failed') throw new Error(current.error ?? 'change-center: job failed')
-    if (current.status === 'cancelled') throw new Error('change-center: job cancelled')
-    if (Date.now() > deadline) throw new Error('change-center: job timed out')
-    await new Promise(resolve => setTimeout(resolve, 300))
-  }
+): Promise<JobHandle<T>> {
+  return submit().then(({ job }) => {
+    let cancelled = false
+    const done = new Promise<T>((resolve, reject) => {
+      const poll = async (): Promise<void> => {
+        const deadline = Date.now() + timeoutMs
+        for (;;) {
+          const body = await getJson(`/api/change-center/jobs/${job.id}`) as { job: { status: string; result?: unknown; error?: string } }
+          const current = body.job
+          if (current.status === 'completed') { resolve(unwrap(current)); return }
+          if (current.status === 'failed') { reject(new Error(current.error ?? 'change-center: job failed')); return }
+          if (current.status === 'cancelled') { reject(new Error('change-center: job cancelled')); return }
+          if (Date.now() > deadline) { reject(new Error('change-center: job timed out')); return }
+          await new Promise(resolve2 => setTimeout(resolve2, 300))
+        }
+      }
+      void poll()
+    })
+    return {
+      jobId: job.id,
+      done,
+      cancel: async () => {
+        if (cancelled) return
+        cancelled = true
+        await postJson(`/api/change-center/jobs/${job.id}/cancel`)
+      },
+    }
+  })
 }
 
 async function getJson(path: string): Promise<unknown> {

@@ -4,8 +4,8 @@
  * @module dsh-change-center/client
  */
 
-import { createElement, useEffect, useState, type ReactElement } from 'react'
-import type { ChangeCenterApi, GitResponse, WireHistoryEvent, WireReview, WireRisk, WireVerificationTask } from './index.ts'
+import { createElement, useEffect, useRef, useState, type ReactElement } from 'react'
+import type { ChangeCenterApi, GitResponse, JobHandle, WireHistoryEvent, WireReview, WireRisk, WireVerificationTask } from './index.ts'
 import { PolicyPanel } from './PolicyPanel.tsx'
 import { RISK_ZH } from './i18n.ts'
 import baseCss from './styles.module.css'
@@ -35,6 +35,8 @@ export function IntelligencePanel(props: IntelligencePanelProps): ReactElement {
   const [verification, setVerification] = useState<WireVerificationTask[]>([])
   const [timeline, setTimeline] = useState<WireHistoryEvent[]>([])
   const [busy, setBusy] = useState(false)
+  const [jobRunning, setJobRunning] = useState(false)
+  const cancelRef = useRef<(() => Promise<void>) | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loopMessage, setLoopMessage] = useState<string | null>(null)
 
@@ -52,31 +54,60 @@ export function IntelligencePanel(props: IntelligencePanelProps): ReactElement {
     refresh()
   }, [sessionId])
 
-  const run = async (action: () => Promise<unknown>): Promise<void> => {
+  /**
+   * Run one action. Job-backed actions (verification/review/fix/loop) yield a
+   * {@link JobHandle}: the panel holds its cancel and shows a 取消 button while
+   * it runs; cancellation settles the job to `cancelled`, which is not an
+   * error. Plain actions (risk analyze) run as before.
+   */
+  const run = (action: () => Promise<unknown>, onDone?: (result: unknown) => void): void => {
     setBusy(true)
     setError(null)
-    try {
-      await action()
-      refresh()
-      onChanged()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setBusy(false)
-    }
+    void (async () => {
+      try {
+        const result = await action()
+        const handle = result as JobHandle<unknown> | undefined
+        if (handle !== undefined && typeof handle.jobId === 'string') {
+          cancelRef.current = handle.cancel
+          setJobRunning(true)
+          onDone?.(await handle.done)
+        } else {
+          onDone?.(undefined)
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        if (!msg.includes('cancelled')) setError(msg)
+      } finally {
+        refresh()
+        onChanged()
+        setBusy(false)
+        setJobRunning(false)
+        cancelRef.current = null
+      }
+    })()
+  }
+
+  const cancelCurrent = (): void => {
+    void cancelRef.current?.().catch(() => undefined)
   }
 
   const runLoop = (): void => {
     setLoopMessage(null)
-    run(() => api.loopRun(sessionId).then(result => {
-      setLoopMessage(`修复循环结束：${result.result.stopped}，共 ${result.result.iterations} 轮`)
-    }))
+    run(() => api.loopRun(sessionId), result => {
+      const r = (result as { result: { iterations: number; stopped: string } } | undefined)
+      if (r !== undefined) {
+        setLoopMessage(`修复循环结束：${r.result.stopped}，共 ${r.result.iterations} 轮`)
+      }
+    })
   }
 
   return createElement('div', { className: css.panel },
-    error !== null ? createElement('div', { style: { color: 'var(--dsw-alias-state-error-primary)', fontSize: 12, marginBottom: 8 } }, error) : null,
+    error !== null ? createElement('div', { className: css.panelError }, error) : null,
     createElement('div', { className: css.loopRow },
       createElement('button', { onClick: runLoop, disabled: busy, className: baseCss.buttonGhost }, busy ? '运行中…' : '运行修复循环'),
+      jobRunning
+        ? createElement('button', { onClick: cancelCurrent, className: baseCss.buttonDanger }, '取消')
+        : null,
       loopMessage !== null ? createElement('span', { className: css.loopMessage }, loopMessage) : null,
     ),
     createElement(GitCard, { git, workspace }),
@@ -109,14 +140,14 @@ function Collapsible(props: { title: string; children: (expanded: boolean) => Re
       onClick: () => setExpanded(!expanded),
       className: baseCss.cardTitleButton,
     }, `${expanded ? '▾' : '▸'} ${props.title}`),
-    expanded ? createElement('div', { style: { marginTop: 6 } }, props.children(true)) : null,
+    expanded ? createElement('div', { className: css.cardBody }, props.children(true)) : null,
   )
 }
 
 function card(title: string, children: ReactElement | ReactElement[] | string): ReactElement {
   return createElement('div', { className: baseCss.card },
     createElement('div', { className: baseCss.cardTitle }, title),
-    createElement('div', { style: { marginTop: 6 } }, children),
+    createElement('div', { className: css.cardBody }, children),
   )
 }
 
@@ -127,11 +158,11 @@ function GitCard(props: { git: GitResponse | null; workspace: string }): ReactEl
   return card('Git',
     notGit
       ? createElement('div', { className: baseCss.muted }, '不是 Git 仓库')
-      : createElement('div', { style: { fontSize: 12 } },
+      : createElement('div', { className: css.smallText },
         createElement('div', null, '分支：', createElement('b', null, repo && 'branch' in repo ? repo.branch : '—')),
         createElement('div', null, 'HEAD：', createElement('b', null, repo && 'head' in repo ? repo.head : '—')),
         createElement('div', null, repo && 'dirty' in repo ? (repo.dirty ? '● 有未提交修改' : '○ 干净') : ''),
-        createElement('div', { className: baseCss.muted, style: { marginTop: 4 } }, workspace),
+        createElement('div', { className: `${baseCss.muted} ${css.cardBodyTight}` }, workspace),
       ),
   )
 }
@@ -147,25 +178,24 @@ function ReviewCard(props: {
     createElement('div', null,
       createElement('button', { onClick: onRun, disabled: busy, className: baseCss.buttonGhost }, busy ? '运行中…' : '运行审查'),
       review === null
-        ? createElement('div', { className: baseCss.muted, style: { marginTop: 6 } }, '暂无审查')
-        : createElement('div', { style: { marginTop: 6 } },
+        ? createElement('div', { className: `${baseCss.muted} ${css.cardBody}` }, '暂无审查')
+        : createElement('div', { className: css.cardBody },
           createElement('div', null,
             '风险：', createElement('b', { style: { color: RISK_COLOR[review.risk] ?? undefined } }, RISK_ZH[review.risk] ?? review.risk),
             ` · 评分 ${review.score}/100`),
           review.summary.length > 0
-            ? createElement('div', { className: baseCss.muted, style: { marginTop: 4 } }, review.summary)
+            ? createElement('div', { className: `${baseCss.muted} ${css.cardBodyTight}` }, review.summary)
             : null,
-          createElement('div', { style: { marginTop: 4 } },
-            review.findings.slice(0, 5).map(finding => createElement('div', { key: finding.id, style: { fontSize: 11, marginBottom: 3 } },
-              createElement('span', { style: { color: findingColor(finding.severity), fontWeight: 700 } },
+          createElement('div', { className: css.cardBodyTight },
+            review.findings.slice(0, 5).map(finding => createElement('div', { key: finding.id, className: css.findingRow },
+              createElement('span', { className: css.findingTitle, style: { color: findingColor(finding.severity) } },
                 `${finding.severity.toUpperCase()} ${finding.filePath}${finding.line !== undefined ? `:${finding.line}` : ''}`),
               ` ${finding.title}`,
               (finding.severity === 'error' || finding.severity === 'critical')
                 ? createElement('button', {
                   onClick: () => onFix(finding.id),
                   disabled: busy,
-                  style: { marginLeft: 6 },
-                  className: baseCss.buttonMini,
+                  className: `${baseCss.buttonMini} ${css.findingFix}`,
                 }, 'AI 修复')
                 : null,
             )),
@@ -196,13 +226,13 @@ function RiskCard(props: { risk: WireRisk | null; busy: boolean; onAnalyze: () =
     createElement('div', null,
       createElement('button', { onClick: onAnalyze, disabled: busy, className: baseCss.buttonGhost }, busy ? '分析中…' : '分析'),
       risk === null
-        ? createElement('div', { className: baseCss.muted, style: { marginTop: 6 } }, '未分析')
-        : createElement('div', { style: { marginTop: 6 } },
+        ? createElement('div', { className: `${baseCss.muted} ${css.cardBody}` }, '未分析')
+        : createElement('div', { className: css.cardBody },
           createElement('div', null,
             createElement('b', { style: { color: RISK_COLOR[risk.level] ?? undefined } }, RISK_ZH[risk.level] ?? risk.level),
             ` · 评分 ${risk.score}`),
           risk.reasons.length > 0
-            ? createElement('div', { className: baseCss.muted, style: { marginTop: 4 } }, risk.reasons.map(r => r.rule).join(', '))
+            ? createElement('div', { className: `${baseCss.muted} ${css.cardBodyTight}` }, risk.reasons.map(r => r.rule).join(', '))
             : null,
         ),
     ),
@@ -215,9 +245,9 @@ function VerificationCard(props: { tasks: WireVerificationTask[]; busy: boolean;
     createElement('div', null,
       createElement('button', { onClick: onRun, disabled: busy, className: baseCss.buttonGhost }, busy ? '运行中…' : '运行验证'),
       tasks.length === 0
-        ? createElement('div', { className: baseCss.muted, style: { marginTop: 6 } }, '暂无验证')
-        : createElement('div', { style: { marginTop: 6 } },
-          tasks.slice(0, 5).map(task => createElement('div', { key: task.id, style: { fontSize: 12, marginBottom: 4 } },
+        ? createElement('div', { className: `${baseCss.muted} ${css.cardBody}` }, '暂无验证')
+        : createElement('div', { className: css.cardBody },
+          tasks.slice(0, 5).map(task => createElement('div', { key: task.id, className: css.taskRow },
             createElement('span', { style: statusColor(task.status) }, `${statusIcon(task.status)} ${statusZh(task.status)}`),
             ` ${task.command}`,
           )),
@@ -241,9 +271,9 @@ function TimelineCard(props: { events: WireHistoryEvent[] }): ReactElement {
   return card('时间线',
     events.length === 0
       ? createElement('div', { className: baseCss.muted }, '暂无事件')
-      : createElement('div', { style: { maxHeight: 140, overflow: 'auto' } },
-        events.map(event => createElement('div', { key: event.id, style: { fontSize: 11, color: 'var(--dsw-alias-label-secondary)', marginBottom: 3 } },
-          createElement('span', { style: { color: 'var(--dsw-alias-label-tertiary)' } }, timeOf(event.timestamp)),
+      : createElement('div', { className: css.timelineList },
+        events.map(event => createElement('div', { key: event.id, className: css.timelineRow },
+          createElement('span', { className: css.timelineTime }, timeOf(event.timestamp)),
           ` ${event.actor === 'agent' ? '代理' : event.actor === 'user' ? '用户' : '系统'} ${eventTypeZh(event.type)}`,
         )),
       ),
