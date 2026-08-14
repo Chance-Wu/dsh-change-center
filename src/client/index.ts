@@ -228,7 +228,7 @@ export interface JobHandle<T> {
  * Submit a background job and return a handle immediately: `done` polls the
  * job endpoint until it settles, `cancel` aborts it via the jobs API.
  */
-function submitJobHandle<T>(
+export function submitJobHandle<T>(
   submit: () => Promise<{ job: { id: string } }>,
   unwrap: (job: { status: string; result?: unknown; error?: string }) => T,
   timeoutMs = 180_000,

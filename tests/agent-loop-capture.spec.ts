@@ -6,7 +6,7 @@
  * @module dsh-change-center/tests
  */
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, beforeAll, afterAll } from 'vitest'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -48,6 +48,20 @@ function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
 }
 
 describe('capture through the real agent loop', () => {
+  let tempRoot: string
+
+  beforeAll(() => {
+    // Isolate the JSONL store: without this, the test would load the live
+    // host's captured changes (bash commands from this very session).
+    tempRoot = mkdtempSync(join(tmpdir(), 'dsh-loop-home-'))
+    process.env.DSH_HOME = tempRoot
+  })
+
+  afterAll(() => {
+    delete process.env.DSH_HOME
+    rmSync(tempRoot, { recursive: true, force: true })
+  })
+
   it('captures a write tool call as a change', async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'dsh-loop-'))
     const adapter = new MockAdapter([

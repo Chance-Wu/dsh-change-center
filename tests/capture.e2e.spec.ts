@@ -26,9 +26,13 @@ let tempDir: string
 
 beforeAll(() => {
   tempDir = mkdtempSync(join(tmpdir(), 'dsh-change-center-'))
+  // Persistence lives under $DSH_HOME; point it at the writable temp dir so
+  // the test never sees the live host's captured changes (command captures).
+  process.env.DSH_HOME = join(tempDir, 'dsh-home')
 })
 
 afterAll(() => {
+  delete process.env.DSH_HOME
   rmSync(tempDir, { recursive: true, force: true })
 })
 

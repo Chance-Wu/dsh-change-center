@@ -51,21 +51,22 @@ export function relativePath(change: { path: string; cwd: string }): string {
 }
 
 /** Extension of a file path ('' for none); the `.` must not start the name. */
-function extensionOf(path: string): string {
+export function extensionOf(path: string): string {
   const name = path.split('/').pop() ?? path
   const dot = name.lastIndexOf('.')
   return dot > 0 ? name.slice(dot + 1) : ''
 }
 
 /** One extension group: merged files plus aggregate line counts. */
-interface ExtGroup {
+export interface ExtGroup {
   label: string
   changes: WireChange[]
   additions: number
   deletions: number
 }
 
-function groupByExtension(changes: WireChange[]): ExtGroup[] {
+/** Group changes by file extension, labels as `*.ext` (or `(其他)`). */
+export function groupByExtension(changes: WireChange[]): ExtGroup[] {
   const map = new Map<string, ExtGroup>()
   for (const change of changes) {
     const ext = extensionOf(change.path)

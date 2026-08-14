@@ -32,9 +32,12 @@ let tempDir: string
 
 beforeAll(() => {
   tempDir = mkdtempSync(join(tmpdir(), 'dsh-phase4-'))
+  // Isolate the JSONL store from the live host's captured changes.
+  process.env.DSH_HOME = join(tempDir, 'dsh-home')
 })
 
 afterAll(() => {
+  delete process.env.DSH_HOME
   rmSync(tempDir, { recursive: true, force: true })
 })
 
