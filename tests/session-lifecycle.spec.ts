@@ -1,0 +1,115 @@
+/**
+ * Session lifecycle unit tests: turn/start opens a session, turn/end
+ * completes it, captured changes attach and accumulate statistics.
+ * @module dsh-change-center/tests
+ */
+
+import { describe, expect, it, beforeAll, afterAll } from 'vitest'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { Context } from '@deepseek-ai/cordis'
+import { SessionStore, SessionId, SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
+import type { Session } from '@deepseek-ai/dsh-session'
+import { ChangeService } from '../src/services/ChangeService.ts'
+import { SessionService } from '../src/services/SessionService.ts'
+import { ApplyService } from '../src/services/ApplyService.ts'
+import { SnapshotService } from '../src/services/SnapshotService.ts'
+
+let tempDir: string
+
+beforeAll(() => {
+  tempDir = mkdtempSync(join(tmpdir(), 'dsh-change-center-session-'))
+})
+
+afterAll(() => {
+  rmSync(tempDir, { recursive: true, force: true })
+})
+
+async function setup(): Promise<{ ctx: Context; session: Session }> {
+  const ctx = new Context()
+  await ctx.plugin(SessionStore)
+  await ctx.plugin(ChangeService)
+  await ctx.plugin(SessionService)
+  await ctx.plugin(ApplyService)
+  await ctx.plugin(SnapshotService)
+  // An attached session: session/event fires on every append.
+  const session = ctx.sessions.create(SessionId('agent-1'), {
+    meta: { cwd: tempDir, createdAt: Date.now() },
+  })
+  return { ctx, session }
+}
+
+describe('SessionService turn lifecycle', () => {
+  it('opens a session on turn/start and completes it on turn/end', async () => {
+    const { ctx, session } = await setup()
+
+    session.append('turn/start', { turn: 1 })
+    let sessions = ctx.changeSessions.list()
+    expect(sessions).toHaveLength(1)
+    expect(sessions[0]?.status).toBe('active')
+    expect(sessions[0]?.agentSessionId).toBe('agent-1')
+    expect(sessions[0]?.workspace).toBe(tempDir)
+
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    sessions = ctx.changeSessions.list()
+    expect(sessions[0]?.status).toBe('completed')
+  })
+
+  it('opens a new session per turn', async () => {
+    const { ctx, session } = await setup()
+    session.append('turn/start', { turn: 1 })
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    session.append('turn/start', { turn: 2 })
+    expect(ctx.changeSessions.list()).toHaveLength(2)
+  })
+
+  it('attaches captured changes and accumulates statistics', async () => {
+    const { ctx, session } = await setup()
+    session.append('turn/start', { turn: 1 })
+
+    ctx.changeCenter.record({
+      sessionId: 'agent-1',
+      cwd: tempDir,
+      path: 'src/a.txt',
+      operation: 'modify',
+      before: 'a\nb\n',
+      after: 'a\nb\nc\n',
+      source: 'agent',
+      toolName: 'edit',
+    })
+    ctx.changeCenter.record({
+      sessionId: 'agent-1',
+      cwd: tempDir,
+      path: 'src/b.txt',
+      operation: 'create',
+      before: null,
+      after: 'x\ny\n',
+      source: 'agent',
+      toolName: 'write',
+    })
+
+    const changeSession = ctx.changeSessions.list()[0]!
+    expect(changeSession.changeIds).toHaveLength(2)
+    // 1 insertion + 2 additions = 3; 0 deletions.
+    expect(changeSession.statistics).toEqual({ files: 2, additions: 3, deletions: 0 })
+  })
+
+  it('falls back to a group when a change arrives without turn/start', async () => {
+    const ctx = new Context()
+    await ctx.plugin(ChangeService)
+    await ctx.plugin(SessionService)
+    ctx.changeCenter.record({
+      sessionId: 'orphan-1',
+      cwd: tempDir,
+      path: 'x.txt',
+      operation: 'modify',
+      before: '1\n',
+      after: '2\n',
+      source: 'agent',
+      toolName: 'edit',
+    })
+    expect(ctx.changeSessions.list()).toHaveLength(1)
+    expect(ctx.changeSessions.changesOf(ctx.changeSessions.list()[0]!.id)).toHaveLength(1)
+  })
+})

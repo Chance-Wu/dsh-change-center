@@ -1,0 +1,46 @@
+/* ChangeReviewPanel：三栏 IDE 审查布局。 */
+.panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  height: 100%;
+  padding: 12px;
+  box-sizing: border-box;
+  gap: 10px;
+}
+
+.error {
+  color: var(--dsw-alias-state-error-primary);
+  font-size: var(--dsw-font-xxs-12);
+}
+
+.body {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* 中栏：diff + 审查操作 */
+.viewerWrap {
+  flex: 1 1 420px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.centerEmpty {
+  flex: 1;
+  min-width: 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: var(--dsw-font-s-14);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed var(--dsw-alias-border-l2);
+  border-radius: 10px;
+  background: var(--dsw-alias-bg-layer-2);
+}

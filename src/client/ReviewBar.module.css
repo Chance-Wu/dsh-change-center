@@ -1,0 +1,56 @@
+/* ReviewBar：审查操作栏。 */
+.bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 10px;
+  background: var(--dsw-alias-bg-layer-2);
+  padding: 8px 12px;
+}
+
+.left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.toolMeta {
+  font-size: var(--dsw-font-xxs-12);
+  color: var(--dsw-alias-label-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  flex: none;
+}
+
+/* 冲突提示 */
+.conflict {
+  margin-top: 8px;
+  border: 1px solid var(--dsw-alias-state-warn-primary);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 8%, var(--dsw-alias-bg-layer-2));
+  padding: 10px 12px;
+}
+.conflictTitle {
+  font-weight: 600;
+  font-size: var(--dsw-font-xxs-12);
+  color: var(--dsw-alias-state-warn-primary);
+}
+.conflictDesc {
+  font-size: var(--dsw-font-xxs-12);
+  color: var(--dsw-alias-label-secondary);
+  margin-top: 2px;
+}
+.conflictActions {
+  margin-top: 8px;
+  display: flex;
+  gap: 8px;
+}

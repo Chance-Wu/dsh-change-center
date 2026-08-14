@@ -1,0 +1,171 @@
+/* DiffViewer：行块式 diff + 工具条，只引用设计 token。 */
+.viewer {
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 10px;
+  background: var(--dsw-alias-bg-layer-2);
+  padding: 10px 12px;
+  min-width: 0;
+}
+
+.toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  gap: 8px;
+}
+
+.fileTitle {
+  font-weight: 600;
+  font-size: var(--dsw-font-s-14);
+  color: var(--dsw-alias-label-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.modeTabs {
+  display: flex;
+  gap: 2px;
+  background: var(--dsw-alias-bg-layer-3);
+  border-radius: 8px;
+  padding: 2px;
+  flex: none;
+}
+
+.modeTab {
+  border: none;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: var(--dsw-font-xxs-12);
+  padding: 3px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+.modeTab:hover {
+  color: var(--dsw-alias-label-primary);
+}
+.modeTab[data-active='true'] {
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-primary);
+  box-shadow: var(--dsw-shadow-lv1);
+}
+
+/* 统一 diff：行块式背景色（参考 TrajectoryTable promptDiff） */
+.diffBody {
+  max-height: 380px;
+  overflow: auto;
+  font-family: var(--ds-font-family-code);
+  font-size: var(--dsw-font-xxxs-11);
+  line-height: 17px;
+  white-space: pre;
+  background: var(--dsw-alias-bg-layer-1);
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 8px;
+  padding: 6px 0;
+}
+
+.diffLine {
+  display: block;
+  padding: 0 8px;
+  min-width: max-content;
+}
+.diffLineContext {
+  color: var(--dsw-alias-label-secondary);
+}
+.diffLineAdded {
+  color: color-mix(in srgb, var(--dsw-alias-state-success-primary) 72%, var(--dsw-alias-label-primary));
+  background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 14%, var(--dsw-alias-bg-layer-1));
+}
+.diffLineRemoved {
+  color: var(--dsw-alias-state-error-primary);
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, var(--dsw-alias-bg-layer-1));
+}
+
+.diffNoChange {
+  color: var(--dsw-alias-label-tertiary);
+  padding: 8px;
+  font-family: inherit;
+}
+
+/* 并排双栏 */
+.sideBySide {
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.sideHeader {
+  display: flex;
+  border-bottom: 1px solid var(--dsw-alias-border-l1);
+  background: var(--dsw-alias-bg-layer-3);
+  font-size: var(--dsw-font-xxxs-11);
+  font-weight: 700;
+  color: var(--dsw-alias-label-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+.sideColHeader {
+  flex: 1;
+  padding: 4px 8px;
+}
+.sideRow {
+  display: flex;
+  font-family: var(--ds-font-family-code);
+  font-size: var(--dsw-font-xxxs-11);
+  line-height: 17px;
+}
+.sideRowDeletion {
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, var(--dsw-alias-bg-layer-1));
+}
+.sideRowInsertion {
+  background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 14%, var(--dsw-alias-bg-layer-1));
+}
+.sideCol {
+  flex: 1;
+  padding: 0 8px;
+  min-height: 17px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: pre;
+}
+.sideColDelText {
+  color: var(--dsw-alias-state-error-primary);
+}
+.sideColInsText {
+  color: color-mix(in srgb, var(--dsw-alias-state-success-primary) 72%, var(--dsw-alias-label-primary));
+}
+
+/* 编辑器模式 */
+.editorArea {
+  margin-top: 8px;
+}
+.editorTextarea {
+  width: 100%;
+  min-height: 280px;
+  box-sizing: border-box;
+  font-family: var(--ds-font-family-code);
+  font-size: var(--dsw-font-xxs-12);
+  line-height: 18px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  padding: 8px;
+  resize: vertical;
+}
+.editorTextarea:focus {
+  outline: none;
+  border-color: var(--dsw-alias-state-business-primary);
+  box-shadow: 0 0 0 1px var(--dsw-alias-state-business-primary);
+}
+.editorActions {
+  margin-top: 6px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.savedHint {
+  color: var(--dsw-alias-state-success-primary);
+  font-size: var(--dsw-font-xxs-12);
+}

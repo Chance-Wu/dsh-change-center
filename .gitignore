@@ -1,0 +1,16 @@
+# Dependencies
+node_modules/
+
+# Build output (published via package.json `files`, not committed)
+lib/
+dist/
+
+# Test / coverage artifacts
+coverage/
+
+# Local DSH data (snapshots, history, policy overrides, stores)
+.dsh/
+
+# Editor / OS noise
+.DS_Store
+*.log

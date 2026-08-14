@@ -1,0 +1,172 @@
+/* ChangeTree：文件树卡片样式，只引用设计 token。 */
+.tree {
+  flex: 0 0 250px;
+  max-height: 480px;
+  overflow: auto;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 10px;
+  background: var(--dsw-alias-bg-layer-2);
+  padding: 6px;
+  min-width: 0;
+}
+
+.title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--dsw-font-xxxs-11);
+  font-weight: 700;
+  color: var(--dsw-alias-label-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  padding: 2px 6px 6px;
+}
+
+/* 文件数徽标 */
+.titleCount {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 16px;
+  padding: 0 5px;
+  border-radius: 8px;
+  font-size: var(--dsw-font-xxxs-11);
+  font-variant-numeric: tabular-nums;
+  color: var(--dsw-alias-label-secondary);
+  background: var(--dsw-alias-bg-layer-3);
+  border: 1px solid var(--dsw-alias-border-l1);
+}
+
+/* 目录行：可折叠按钮 */
+.dirRow {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 3px 6px;
+  font-size: var(--dsw-font-xxs-12);
+  font-family: inherit;
+  text-align: left;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--dsw-alias-label-tertiary);
+  white-space: nowrap;
+}
+.dirRow:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.dirName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  font-weight: 500;
+}
+
+/* 目录展开/折叠 chevron（旋转动画） */
+.chevronCollapsed {
+  flex: none;
+  transform: rotate(0deg);
+  transition: transform 140ms ease;
+  color: inherit;
+  opacity: 0.7;
+}
+.chevronExpanded {
+  flex: none;
+  transform: rotate(90deg);
+  transition: transform 140ms ease;
+  color: inherit;
+  opacity: 0.7;
+}
+
+/* 文件行：hover / 选中状态 */
+.fileRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 4px 6px;
+  font-size: var(--dsw-font-xxs-12);
+  font-family: inherit;
+  text-align: left;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--dsw-alias-label-primary);
+  white-space: nowrap;
+  overflow: hidden;
+}
+.fileRow:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+.fileRow[data-selected='true'] {
+  background: var(--dsw-alias-interactive-bg-active);
+  box-shadow: inset 0 0 0 1px var(--dsw-alias-state-business-primary);
+}
+
+.fileName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+/* 操作徽标 */
+.mark {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  font-size: var(--dsw-font-xxxs-11);
+  font-weight: 700;
+}
+.markCreate {
+  composes: mark;
+  color: var(--dsw-alias-state-success-primary);
+  background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 14%, transparent);
+}
+.markModify {
+  composes: mark;
+  color: var(--dsw-alias-state-business-primary);
+  background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 14%, transparent);
+}
+.markDelete {
+  composes: mark;
+  color: var(--dsw-alias-state-error-primary);
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 14%, transparent);
+}
+.markNeutral {
+  composes: mark;
+  color: var(--dsw-alias-label-secondary);
+  background: var(--dsw-alias-bg-layer-3);
+}
+
+/* 行尾 +N/-N 计数 */
+.counts {
+  flex: none;
+  margin-left: auto;
+  font-size: var(--dsw-font-xxxs-11);
+  font-variant-numeric: tabular-nums;
+  display: inline-flex;
+  gap: 4px;
+}
+.countAdd {
+  color: var(--dsw-alias-state-success-primary);
+}
+.countDel {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+/* 空树 */
+.empty {
+  padding: 10px 6px;
+  font-size: var(--dsw-font-xxs-12);
+  color: var(--dsw-alias-label-tertiary);
+}

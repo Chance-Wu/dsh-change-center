@@ -1,0 +1,152 @@
+/**
+ * 共用样式：变更中心各组件的卡片/行/徽标/按钮基础类。
+ * 只引用 Harness 设计 token（--dsw-alias-*），自动适配明暗主题。
+ * @module dsh-change-center/client
+ */
+
+/* 卡片：右栏情报面板 / 面板容器 */
+.card {
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-2);
+  box-shadow: var(--dsw-shadow-lv1);
+  padding: 10px 12px;
+  min-width: 0;
+}
+
+.cardTitle {
+  font-size: var(--dsw-font-xxxs-11);
+  font-weight: 700;
+  color: var(--dsw-alias-label-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+/* 可折叠卡片标题按钮 */
+.cardTitleButton {
+  composes: cardTitle;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* 次级文字 */
+.muted {
+  font-size: var(--dsw-font-xxs-12);
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* 主操作按钮（小号） */
+.buttonPrimary {
+  background: var(--dsw-alias-state-business-primary);
+  color: var(--dsw-alias-label-primary-inverted);
+  border: none;
+  border-radius: 8px;
+  padding: 5px 14px;
+  font-size: var(--dsw-font-xxs-12);
+  cursor: pointer;
+  transition: opacity 120ms ease;
+}
+.buttonPrimary:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* 危险操作按钮 */
+.buttonDanger {
+  background: transparent;
+  color: var(--dsw-alias-state-error-primary);
+  border: 1px solid var(--dsw-alias-state-error-primary);
+  border-radius: 8px;
+  padding: 5px 14px;
+  font-size: var(--dsw-font-xxs-12);
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+.buttonDanger:hover {
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 10%, transparent);
+}
+.buttonDanger:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* 次要按钮 */
+.buttonGhost {
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  padding: 5px 14px;
+  font-size: var(--dsw-font-xxs-12);
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+.buttonGhost:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+.buttonGhost:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* 小号行内按钮（AI 修复等） */
+.buttonMini {
+  background: var(--dsw-alias-bg-layer-3);
+  color: var(--dsw-alias-label-secondary);
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: var(--dsw-font-xxxs-11);
+  cursor: pointer;
+}
+.buttonMini:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+/* 状态徽标（Pill 式） */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 10px;
+  font-size: var(--dsw-font-xxxs-11);
+  font-weight: 500;
+  background: var(--dsw-alias-bg-layer-3);
+  color: var(--dsw-alias-label-secondary);
+  border: 1px solid var(--dsw-alias-border-l1);
+}
+
+.badgeSuccess {
+  composes: badge;
+  color: var(--dsw-alias-state-success-primary);
+  background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 10%, transparent);
+  border-color: transparent;
+}
+
+.badgeError {
+  composes: badge;
+  color: var(--dsw-alias-state-error-primary);
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 10%, transparent);
+  border-color: transparent;
+}
+
+.badgeWarn {
+  composes: badge;
+  color: var(--dsw-alias-state-warn-primary);
+  background: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 12%, transparent);
+  border-color: transparent;
+}
+
+.badgeBusiness {
+  composes: badge;
+  color: var(--dsw-alias-state-business-primary);
+  background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 12%, transparent);
+  border-color: transparent;
+}

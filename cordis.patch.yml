@@ -1,0 +1,14 @@
+# dsh-change-center bundle patch: the plugin's own loader rows.
+#
+# Applied by the profile loader after the profile's existing bundle layers
+# (dsh-base, dsh-web-app). The host half is one ordinary host row; the
+# `dsh.client` manifest on this package makes the browser half part of the
+# web roster the client-modules node half scans into window.__DSH_BOOT__.
+- insert:
+    - id: change-center
+      name: dsh-change-center
+
+    # The browser half rides the same row: package.json's dsh.client block
+    # declares platform web + its inject face. No separate client row needed
+    # beyond the host row itself (matching ui-jobs, whose single row serves
+    # both halves).
