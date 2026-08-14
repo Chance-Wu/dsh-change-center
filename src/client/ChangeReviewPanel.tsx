@@ -173,6 +173,8 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
             api,
             onAction: afterAction,
             onError: (message) => setError(message),
+            // 批量「全部接收并应用」进行中,禁用单条操作避免竞态。
+            disabled: busy,
           }),
         ),
       createElement(IntelligencePanel, {

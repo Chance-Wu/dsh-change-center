@@ -16,6 +16,8 @@ export interface ReviewBarProps {
   api: ChangeCenterApi
   onAction: () => void
   onError: (message: string) => void
+  /** External disable (e.g. a session-level bulk operation is in flight). */
+  disabled?: boolean
 }
 
 /** 状态 → 徽标样式类（共用）。 */
@@ -32,7 +34,7 @@ function statusClass(status: string): string {
 
 /** Per-change review controls. */
 export function ReviewBar(props: ReviewBarProps): ReactElement {
-  const { change, api, onAction, onError } = props
+  const { change, api, onAction, onError, disabled = false } = props
   const [conflict, setConflict] = useState<ActionResult | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -53,34 +55,53 @@ export function ReviewBar(props: ReviewBarProps): ReactElement {
     }
   }
 
+  // 按钮按状态机合法转移显示:接受(pending/failed)、拒绝(pending/approved/failed)、
+  // 应用(pending/approved)、重试应用(failed)、回滚(applied)。
+  const status = change.status
+  const canApprove = status === 'pending' || status === 'failed'
+  const canReject = status === 'pending' || status === 'approved' || status === 'failed'
+  const inert = busy || disabled
+
   return createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: 8 } },
     createElement('div', { className: css.bar },
       createElement('div', { className: css.left },
-        createElement('span', { className: statusClass(change.status) }, STATUS_ZH[change.status] ?? change.status),
+        createElement('span', { className: statusClass(status) }, STATUS_ZH[status] ?? status),
         createElement('span', { className: css.toolMeta }, `通过 ${change.toolName}`),
       ),
       createElement('div', { className: css.actions },
-        createElement('button', {
-          onClick: () => run(() => api.changeAction(change.id, 'reject')),
-          disabled: busy,
-          className: baseCss.buttonDanger,
-        }, '拒绝'),
-        createElement('button', {
-          onClick: () => run(() => api.changeAction(change.id, 'approve')),
-          disabled: busy,
-          className: baseCss.buttonPrimary,
-        }, '接受'),
-        change.status === 'applied'
+        canReject
+          ? createElement('button', {
+            onClick: () => run(() => api.changeAction(change.id, 'reject')),
+            disabled: inert,
+            className: baseCss.buttonDanger,
+          }, '拒绝')
+          : null,
+        canApprove
+          ? createElement('button', {
+            onClick: () => run(() => api.changeAction(change.id, 'approve')),
+            disabled: inert,
+            className: baseCss.buttonPrimary,
+          }, '接受')
+          : null,
+        status === 'applied'
           ? createElement('button', {
             onClick: () => run(() => api.changeAction(change.id, 'rollback')),
-            disabled: busy,
+            disabled: inert,
             className: baseCss.buttonGhost,
           }, '回滚')
-          : createElement('button', {
-            onClick: () => run(() => api.applyChange(change.id)),
-            disabled: busy,
-            className: baseCss.buttonPrimary,
-          }, '应用'),
+          : status === 'pending' || status === 'approved'
+            ? createElement('button', {
+              onClick: () => run(() => api.applyChange(change.id)),
+              disabled: inert,
+              className: baseCss.buttonPrimary,
+            }, '应用')
+            : status === 'failed'
+              ? createElement('button', {
+                onClick: () => run(() => api.applyChange(change.id)),
+                disabled: inert,
+                className: baseCss.buttonPrimary,
+              }, '重试应用')
+              : null,
       ),
     ),
     conflict !== null
