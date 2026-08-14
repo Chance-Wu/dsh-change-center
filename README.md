@@ -44,6 +44,13 @@ pnpm build       # tsc + tsdown(浏览器半边打包 lib/client.js)
 
 > 测试将 `$DSH_HOME` 指向临时目录,持久化写入可写区域(与 DSH 沙箱兼容)。
 
+### 接入 DSH
+
+插件作为 profile bundle 接入:把本包加入 profile 的 `dsh.profile.bundles`(加载器会应用包内
+`cordis.patch.yml` 的 `change-center` insert 行);包内 `dsh.client` manifest 声明浏览器半边
+(`platform: web`),由 Harness web 前端自动纳入 `window.__DSH_BOOT__` 加载清单。
+宿主半边经 `ctx.webServer.register({ kind: 'prefix', path: '/api/change-center' })` 挂载同源 REST 与 SSE。
+
 ## HTTP API(前缀 `/api/change-center`)
 
 | 资源 | 说明 |
