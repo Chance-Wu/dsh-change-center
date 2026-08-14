@@ -119,6 +119,7 @@ describe('ChangeService', () => {
     expect(result.applied).toHaveLength(1)
     expect(result.failed).toHaveLength(2)
     expect(result.skipped).toHaveLength(0)
+    expect(result.superseded).toHaveLength(0)
     expect(ctx.changeCenter.listBySession('batch-a').every(c => c.status !== 'pending')).toBe(true)
   })
 
@@ -132,6 +133,7 @@ describe('ChangeService', () => {
     const result = await ctx.changeCenter.acceptAllAndApply('batch-b')
     expect(result.approved).toHaveLength(0)
     expect(result.skipped).toEqual(['change-1'])
+    expect(result.superseded).toHaveLength(0)
   })
 
   it('accept-all-and-apply processes one change per path (superseded writes skipped)', async () => {
@@ -147,11 +149,12 @@ describe('ChangeService', () => {
       before: 'y\n', after: 'z\n', source: 'agent', toolName: 'edit',
     })
     const result = await ctx.changeCenter.acceptAllAndApply('batch-c')
-    // 最新一条被处理(无引擎 → 失败);旧路径被去重跳过。
+    // 最新一条被处理(无引擎 → 失败);旧路径写入归入 superseded。
     expect(result.approved).toEqual(['change-2'])
     expect(result.failed).toHaveLength(1)
     expect(result.failed[0]?.id).toBe('change-2')
-    expect(result.skipped).toEqual(['change-1'])
+    expect(result.superseded).toEqual(['change-1'])
+    expect(result.skipped).toHaveLength(0)
   })
 })
 

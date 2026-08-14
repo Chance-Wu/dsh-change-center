@@ -139,10 +139,13 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
       acceptResult !== null
         ? createElement('div', { className: css.resultSummary },
           createElement('div', { className: css.resultHead },
-            createElement('span', { className: css.resultOk }, `已接收并应用 ${acceptResult.applied.length}`),
-            createElement('span', { className: css.resultMuted }, `已接收 ${acceptResult.approved.length} · 跳过 ${acceptResult.skipped.length}`),
+            createElement('span', { className: css.resultOk }, `已应用 ${acceptResult.applied.length}`),
             failedCount > 0
               ? createElement('span', { className: css.resultFail }, `失败 ${failedCount}`)
+              : null,
+            acceptResult.skipped.length > 0 || acceptResult.superseded.length > 0
+              ? createElement('span', { className: css.resultMuted },
+                `跳过 ${acceptResult.skipped.length}${acceptResult.superseded.length > 0 ? ` · 旧写入 ${acceptResult.superseded.length}` : ''}`)
               : null,
             createElement('button', { onClick: () => setAcceptResult(null), className: css.resultClose }, '×'),
           ),

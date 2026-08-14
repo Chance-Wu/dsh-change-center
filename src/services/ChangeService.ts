@@ -43,14 +43,24 @@ export interface NewFileChange {
   toolCallId?: string
 }
 
-/** Result of {@link ChangeService.acceptAllAndApply}. */
+/**
+ * Result of {@link ChangeService.acceptAllAndApply}.
+ *
+ * The counters partition the session's changes into disjoint categories:
+ * `applied + failed` = pending changes actually processed, `skipped` = other
+ * non-pending changes, `superseded` = older writes to a path whose newer
+ * change was processed. `approved` reports the (transient) approval of each
+ * processed pending change and may overlap `applied`/`failed`.
+ */
 export interface AcceptAllResult {
-  /** Changes approved (pending → approved). */
+  /** Pending changes approved during this run (may overlap applied/failed). */
   approved: string[]
   /** Approved changes successfully applied (incl. command/external). */
   applied: string[]
-  /** Changes skipped (not pending / already applied). */
+  /** Changes skipped: not pending (already applied/rejected/approved). */
   skipped: string[]
+  /** Older changes to a path superseded by a newer change (not applied). */
+  superseded: string[]
   /** Changes that failed to apply, with a reason. */
   failed: { id: string; message: string }[]
 }
@@ -309,14 +319,15 @@ export class ChangeService extends Service {
    *
    * Changes are processed newest-first with one change per path: superseded
    * writes to the same file (the review surface shows only the latest) are
-   * skipped so a bulk apply never re-writes an older intermediate state.
+   * reported as `superseded` so a bulk apply never re-writes an older
+   * intermediate state, and the result counters stay disjoint.
    */
   async acceptAllAndApply(sessionId: string): Promise<AcceptAllResult> {
-    const result: AcceptAllResult = { approved: [], applied: [], skipped: [], failed: [] }
+    const result: AcceptAllResult = { approved: [], applied: [], skipped: [], superseded: [], failed: [] }
     const seenPaths = new Set<string>()
     for (const change of this.listBySession(sessionId)) {
       if (seenPaths.has(change.path)) {
-        result.skipped.push(change.id)
+        result.superseded.push(change.id)
         continue
       }
       seenPaths.add(change.path)
