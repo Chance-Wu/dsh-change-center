@@ -11,9 +11,10 @@
  * @module dsh-change-center/client
  */
 
-import { createElement, useEffect, useState, type ReactElement } from 'react'
+import { createElement, useEffect, useMemo, useState, type ReactElement } from 'react'
 import type { ChangeCenterApi, WireAcceptAllResult, WireChange } from './index.ts'
 import { ChangeTree, dedupeByPath } from './ChangeTree.tsx'
+import { countDiff } from '../services/DiffService.ts'
 import { DiffViewer } from './DiffViewer.tsx'
 import { ReviewBar } from './ReviewBar.tsx'
 import { SessionHeader } from './SessionHeader.tsx'
@@ -99,6 +100,17 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
   // 只审查真实文件变更：命令执行等「没有变更」的记录不进入文件树与 diff；
   // 同一文件的多次写入只保留最新一次（按路径去重）。
   const fileChanges = dedupeByPath(changes.filter(isReviewableChange))
+  // 头部统计与去重后的审查面一致（store 的统计含被覆盖的旧写入）。
+  const displayStats = useMemo(() => {
+    let additions = 0
+    let deletions = 0
+    for (const c of fileChanges) {
+      const counts = countDiff(c.before, c.after)
+      additions += counts.additions
+      deletions += counts.deletions
+    }
+    return { files: fileChanges.length, additions, deletions }
+  }, [fileChanges])
   const change = fileChanges.find(c => c.id === selectedChange) ?? null
   const pendingCount = fileChanges.filter(c => c.status === 'pending').length
   const failedCount = acceptResult?.failed.length ?? 0
@@ -107,7 +119,7 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
     error !== null ? createElement('p', { className: css.error }, error) : null,
     createElement(SessionHeader, {
       session: {
-        id: sessionId, name, status, agentSessionId, workspace, changeIds: fileChanges.map(c => c.id), statistics,
+        id: sessionId, name, status, agentSessionId, workspace, changeIds: fileChanges.map(c => c.id), statistics: displayStats,
         createdAt: 0, updatedAt: 0,
       },
     }),
