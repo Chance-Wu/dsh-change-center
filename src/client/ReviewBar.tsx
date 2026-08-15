@@ -6,6 +6,7 @@
 
 import { createElement, useState, type ReactElement } from 'react'
 import type { ActionResult, ChangeCenterApi, WireChange } from './index.ts'
+import { actionsFor } from './changeActions.ts'
 import { STATUS_ZH } from './i18n.ts'
 import baseCss from './styles.module.css'
 import css from './ReviewBar.module.css'
@@ -45,6 +46,9 @@ export function ReviewBar(props: ReviewBarProps): ReactElement {
       const result = (await action()) as ActionResult
       if (result.kind === 'conflict' || (result as { error?: string }).error === 'external modification detected') {
         setConflict(result)
+      } else if (result.kind === 'error') {
+        // 结构化错误(如非法转移):显式提示,不静默。
+        onError((result as { message?: string }).message ?? '操作失败')
       } else {
         onAction()
       }
@@ -55,54 +59,60 @@ export function ReviewBar(props: ReviewBarProps): ReactElement {
     }
   }
 
-  // 按钮按状态机合法转移显示:接受(pending)、拒绝(pending/approved/failed)、
-  // 应用(pending/approved)、重试应用(failed)、回滚(applied)。
-  // failed 不显示「接受」:批量「全部接收并应用」中失败的变更已被接受,再提供接受是误导。
-  const status = change.status
-  const canApprove = status === 'pending'
-  const canReject = status === 'pending' || status === 'approved' || status === 'failed'
+  // 按钮矩阵来自单一事实源 actionsFor(与状态机 TRANSITIONS 一致);
+  // failed 不显示「接受」:批量中失败的变更已被接受。
+  const actions = actionsFor(change.status)
   const inert = busy || disabled
 
   return createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: 8 } },
     createElement('div', { className: css.bar },
       createElement('div', { className: css.left },
-        createElement('span', { className: statusClass(status) }, STATUS_ZH[status] ?? status),
+        createElement('span', { className: statusClass(change.status) }, STATUS_ZH[change.status] ?? change.status),
         createElement('span', { className: css.toolMeta }, `通过 ${change.toolName}`),
       ),
       createElement('div', { className: css.actions },
-        canReject
+        actions.canReject
           ? createElement('button', {
             onClick: () => run(() => api.changeAction(change.id, 'reject')),
             disabled: inert,
             className: baseCss.buttonDanger,
           }, '拒绝')
           : null,
-        canApprove
+        actions.canApprove
           ? createElement('button', {
             onClick: () => run(() => api.changeAction(change.id, 'approve')),
             disabled: inert,
             className: baseCss.buttonPrimary,
           }, '接受')
           : null,
-        status === 'applied'
+        actions.canApply
+          ? createElement('button', {
+            onClick: () => run(() => api.applyChange(change.id)),
+            disabled: inert,
+            className: baseCss.buttonPrimary,
+          }, '应用')
+          : null,
+        actions.canRetryApply
+          ? createElement('button', {
+            onClick: () => run(() => api.applyChange(change.id)),
+            disabled: inert,
+            className: baseCss.buttonPrimary,
+          }, '重试应用')
+          : null,
+        actions.canRollback
           ? createElement('button', {
             onClick: () => run(() => api.changeAction(change.id, 'rollback')),
             disabled: inert,
             className: baseCss.buttonGhost,
           }, '回滚')
-          : status === 'pending' || status === 'approved'
-            ? createElement('button', {
-              onClick: () => run(() => api.applyChange(change.id)),
-              disabled: inert,
-              className: baseCss.buttonPrimary,
-            }, '应用')
-            : status === 'failed'
-              ? createElement('button', {
-                onClick: () => run(() => api.applyChange(change.id)),
-                disabled: inert,
-                className: baseCss.buttonPrimary,
-              }, '重试应用')
-              : null,
+          : null,
+        actions.canRepend
+          ? createElement('button', {
+            onClick: () => run(() => api.changeAction(change.id, 'repend')),
+            disabled: inert,
+            className: baseCss.buttonGhost,
+          }, '重新处理')
+          : null,
       ),
     ),
     conflict !== null

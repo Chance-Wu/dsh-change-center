@@ -83,7 +83,7 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
   }
 
   /** Tree quick actions + the review bar share one action path. */
-  const quickAction = (id: string, action: 'approve' | 'reject'): void => {
+  const quickAction = (id: string, action: 'approve' | 'reject' | 'repend'): void => {
     api.changeAction(id, action)
       .then(afterAction)
       .catch(err => setError(err instanceof Error ? err.message : String(err)))
@@ -97,6 +97,9 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
       .catch(err => setAcceptError(err instanceof Error ? err.message : String(err)))
       .finally(() => setBusy(false))
   }
+
+  // 面板锁:批量进行中或结果展示期间,所有单条入口(操作栏/树快速操作/编辑器保存)禁用。
+  const panelLocked = busy || acceptResult !== null
 
   // 只审查真实文件变更：命令执行等「没有变更」的记录不进入文件树与 diff；
   // 同一文件的多次写入只保留最新一次（按路径去重）。
@@ -174,6 +177,8 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
         onSelect: setSelectedChange,
         onApprove: (id) => quickAction(id, 'approve'),
         onReject: (id) => quickAction(id, 'reject'),
+        onRepend: (id) => quickAction(id, 'repend'),
+        disabled: panelLocked,
       }),
       change === null
         ? createElement('div', { className: css.centerEmpty },
@@ -190,15 +195,15 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
                 .then(afterAction)
                 .catch(err => setError(err instanceof Error ? err.message : String(err)))
             },
+            disabled: panelLocked,
           }),
           createElement(ReviewBar, {
             change,
             api,
             onAction: afterAction,
             onError: (message) => setError(message),
-            // 批量「全部接收并应用」进行中或结果展示期间,禁用单条操作;
-            // 关闭结果摘要(×)后恢复(用于回滚/重试)。
-            disabled: busy || acceptResult !== null,
+            // 面板锁:批量进行中或结果展示期间禁用单条操作;关闭结果摘要(×)后恢复。
+            disabled: panelLocked,
           }),
         ),
       createElement(IntelligencePanel, {

@@ -31,7 +31,22 @@ src/
 ```
 
 变更状态机:`pending → approved → applied → rolled_back`,以及 `rejected` / `failed`,
-非法转移由 `TRANSITIONS` 表直接拒绝。
+非法转移由 `TRANSITIONS` 表直接拒绝(状态动作返回结构化错误,不抛 500)。
+
+## 变更操作矩阵(单一事实源 `actionsFor`,操作栏与目录树共用)
+
+| 状态 | 接受 | 拒绝 | 应用 | 重试应用 | 回滚 | 重新处理 |
+|------|:---:|:---:|:---:|:---:|:---:|:---:|
+| `pending` | ✅ | ✅ | ✅ | — | — | — |
+| `approved` | — | ✅ | ✅ | — | — | — |
+| `failed` | — | ✅ | — | ✅ | — | — |
+| `applied` | — | — | — | — | ✅ | — |
+| `rejected` | — | — | — | — | — | ✅ |
+| `rolled_back` | — | — | — | — | — | ✅ |
+
+- **重新处理** = `rejected|rolled_back → pending`(`POST /changes/:id/repend`),消除死胡同。
+- **全部接收并应用** = 对每路径最新待审变更 先接受再应用(approve+apply);非待审计入跳过、被覆盖的旧写入计入 superseded。
+- 批量进行中/结果展示期间,面板锁定:操作栏、目录树快速操作、编辑器保存全部禁用(结果摘要「×」关闭后恢复)。
 
 ## 开发
 
@@ -56,7 +71,7 @@ pnpm build       # tsc + tsdown(浏览器半边打包 lib/client.js)
 | 资源 | 说明 |
 |------|------|
 | `GET /changes` · `GET /changes/:id` | 变更列表 / 单个变更 |
-| `POST /changes/:id/{approve,reject,apply,rollback,edit}` | 状态机操作(`apply?force=1` 绕过外部修改守卫;`edit` 需 body `{after}`) |
+| `POST /changes/:id/{approve,reject,apply,rollback,edit,repend}` | 状态机操作(`apply?force=1` 绕过外部修改守卫;`edit` 需 body `{after}`;`repend` 重新处理 rejected/rolled_back) |
 | `GET /sessions` · `GET /sessions/:id[/changes]` | 变更会话 |
 | `POST /sessions/:id/{accept-all,reject-all}` | 会话级批量接受/拒绝 |
 | `POST /sessions/:id/accept-all-apply` | **全部接收并应用**:批准全部待审变更并写回,返回 `{result:{approved,applied,skipped,superseded,failed}}`(计数互斥:applied+failed=处理数,skipped=非待审,superseded=被覆盖的旧写入) |

@@ -90,7 +90,7 @@ type Parsed =
   | { kind: 'policy'; id: string; action: 'update' | 'delete' }
   | { kind: 'changes' }
   | { kind: 'change'; id: string }
-  | { kind: 'change-action'; id: string; action: 'approve' | 'reject' | 'apply' | 'rollback' | 'edit' }
+  | { kind: 'change-action'; id: string; action: 'approve' | 'reject' | 'apply' | 'rollback' | 'edit' | 'repend' }
   | { kind: 'not-found' }
 
 /** One compiled route rule: anchored regex over the path after the prefix. */
@@ -123,7 +123,7 @@ const ROUTE_RULES: RouteRule[] = [
   { re: /^\/events\/?$/, build: () => ({ kind: 'events' }) },
   { re: /^\/changes\/?$/, build: () => ({ kind: 'changes' }) },
   { re: /^\/changes\/([^/]+)$/, build: m => ({ kind: 'change', id: m[1]! }) },
-  { re: /^\/changes\/([^/]+)\/(approve|reject|apply|rollback|edit)$/, build: m => ({ kind: 'change-action', id: m[1]!, action: m[2] as 'approve' | 'reject' | 'apply' | 'rollback' | 'edit' }) },
+  { re: /^\/changes\/([^/]+)\/(approve|reject|apply|rollback|edit|repend)$/, build: m => ({ kind: 'change-action', id: m[1]!, action: m[2] as 'approve' | 'reject' | 'apply' | 'rollback' | 'edit' | 'repend' }) },
 ]
 
 /** Parse a change-center pathname into a {@link Parsed} route. */
@@ -243,6 +243,7 @@ async function dispatch(
       switch (parsed.action) {
         case 'approve': return ctx.changeCenter.approve(parsed.id)
         case 'reject': return ctx.changeCenter.reject(parsed.id)
+        case 'repend': return ctx.changeCenter.repend(parsed.id)
         case 'apply': {
           const force = url.searchParams.get('force') === '1'
           return ctx.changeCenter.apply(parsed.id, force)

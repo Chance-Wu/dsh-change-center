@@ -73,13 +73,39 @@ describe('ChangeService', () => {
     expect(ctx.changeCenter.get(change.id)?.status).toBe('pending')
     ctx.changeCenter.reject(change.id)
     expect(ctx.changeCenter.get(change.id)?.status).toBe('rejected')
-    // applied cannot be rejected
-    expect(() => ctx.changeCenter.reject(change.id)).toThrow(/cannot transition/)
+    // applied/rejected 非法转移返回结构化错误,不再 throw(避免 500)。
+    const err = ctx.changeCenter.reject(change.id)
+    expect(err).toMatchObject({ kind: 'error' })
+    expect((err as { message: string }).message).toContain('cannot transition')
   })
 
-  it('rejects unknown ids', async () => {
+  it('rejects unknown ids with a structured error', async () => {
     const ctx = await setup()
-    expect(() => ctx.changeCenter.approve('nope')).toThrow(/unknown change/)
+    const err = ctx.changeCenter.approve('nope')
+    expect(err).toMatchObject({ kind: 'error' })
+    expect((err as { message: string }).message).toContain('unknown change')
+  })
+
+  it('repends a rejected change back to pending', async () => {
+    const ctx = await setup()
+    ctx.changeCenter.record({
+      sessionId: 'repend-1', cwd: '/tmp/ws', path: 'a.txt', operation: 'modify',
+      before: 'x\n', after: 'y\n', source: 'agent', toolName: 'edit',
+    })
+    ctx.changeCenter.reject('change-1')
+    expect(ctx.changeCenter.get('change-1')?.status).toBe('rejected')
+    const result = ctx.changeCenter.repend('change-1')
+    expect(result).toMatchObject({ id: 'change-1', status: 'pending' })
+  })
+
+  it('rejects repend for a pending change (structured error)', async () => {
+    const ctx = await setup()
+    ctx.changeCenter.record({
+      sessionId: 'repend-2', cwd: '/tmp/ws', path: 'a.txt', operation: 'modify',
+      before: 'x\n', after: 'y\n', source: 'agent', toolName: 'edit',
+    })
+    const err = ctx.changeCenter.repend('change-1')
+    expect(err).toMatchObject({ kind: 'error' })
   })
 
   it('emits change:created on record', async () => {

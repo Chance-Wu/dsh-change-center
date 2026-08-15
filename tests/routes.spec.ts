@@ -14,6 +14,7 @@ describe('parsePath', () => {
     ['/api/change-center/changes/change-1/apply', { kind: 'change-action', id: 'change-1', action: 'apply' }],
     ['/api/change-center/changes/change-1/rollback', { kind: 'change-action', id: 'change-1', action: 'rollback' }],
     ['/api/change-center/changes/change-1/edit', { kind: 'change-action', id: 'change-1', action: 'edit' }],
+    ['/api/change-center/changes/change-1/repend', { kind: 'change-action', id: 'change-1', action: 'repend' }],
     ['/api/change-center/sessions', { kind: 'sessions' }],
     ['/api/change-center/sessions/s-1', { kind: 'session', id: 's-1' }],
     ['/api/change-center/sessions/s-1/changes', { kind: 'session-changes', id: 's-1' }],

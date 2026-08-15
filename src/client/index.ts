@@ -116,7 +116,7 @@ export interface ChangeCenterApi {
   listChanges(): Promise<WireChange[]>
   listSessions(): Promise<WireSession[]>
   sessionChanges(sessionId: string): Promise<WireChange[]>
-  changeAction(id: string, action: 'approve' | 'reject' | 'rollback'): Promise<ActionResult>
+  changeAction(id: string, action: 'approve' | 'reject' | 'rollback' | 'repend'): Promise<ActionResult>
   applyChange(id: string, force?: boolean): Promise<ActionResult>
   editChange(id: string, after: string): Promise<unknown>
   sessionAction(sessionId: string, action: 'accept-all' | 'reject-all'): Promise<{ updated: string[] }>

@@ -13,6 +13,7 @@
 
 import { createElement, useMemo, useState, type ReactElement } from 'react'
 import type { WireChange } from './index.ts'
+import { actionsFor } from './changeActions.ts'
 import { countDiff } from '../services/DiffService.ts'
 import { OPERATION_MARK } from './i18n.ts'
 import css from './ChangeTree.module.css'
@@ -24,8 +25,12 @@ export interface ChangeTreeProps {
   onSelect: (id: string) => void
   /** Quick approve from a tree row (pending changes only). */
   onApprove?: (id: string) => void
-  /** Quick reject from a tree row (pending changes only). */
+  /** Quick reject from a tree row (pending/approved/failed). */
   onReject?: (id: string) => void
+  /** Quick re-pend from a tree row (rejected/rolled_back). */
+  onRepend?: (id: string) => void
+  /** Panel lock (bulk op in flight / result showing): hide quick actions. */
+  disabled?: boolean
 }
 
 /** Display mode: extension groups (`*.ext`) or the directory tree. */
@@ -178,7 +183,9 @@ function renderFileRow(
 ): ReactElement {
   const mark = OPERATION_MARK[change.operation] ?? '?'
   const counts = countDiff(change.before, change.after)
-  const pending = change.status === 'pending'
+  // 快速操作与操作栏共用同一矩阵(actionsFor),面板锁定时隐藏。
+  const actions = actionsFor(change.status)
+  const showActions = !(props.disabled ?? false)
   return createElement('button', {
     key: change.id,
     className: css.fileRow,
@@ -194,13 +201,16 @@ function renderFileRow(
       counts.deletions > 0 ? createElement('span', { className: css.countDel }, `-${counts.deletions}`) : null,
     )
     : null,
-  pending && (props.onApprove !== undefined || props.onReject !== undefined)
+  showActions && (actions.canApprove || actions.canReject || actions.canRepend)
     ? createElement('span', { className: css.rowActions, onClick: (event: MouseEvent) => event.stopPropagation() },
-      props.onApprove !== undefined
+      actions.canApprove && props.onApprove !== undefined
         ? createElement('button', { className: css.actionApprove, onClick: () => props.onApprove?.(change.id) }, '接受')
         : null,
-      props.onReject !== undefined
+      actions.canReject && props.onReject !== undefined
         ? createElement('button', { className: css.actionReject, onClick: () => props.onReject?.(change.id) }, '拒绝')
+        : null,
+      actions.canRepend && props.onRepend !== undefined
+        ? createElement('button', { className: css.actionApprove, onClick: () => props.onRepend?.(change.id) }, '重新处理')
         : null,
     )
     : null,

@@ -22,6 +22,8 @@ export interface DiffViewerProps {
   mode: 'unified' | 'side-by-side' | 'editor'
   onModeChange: (mode: 'unified' | 'side-by-side' | 'editor') => void
   onSaved: (after: string) => void
+  /** Panel lock (bulk op in flight / result showing): disable saving edits. */
+  disabled?: boolean
 }
 
 /**
@@ -30,7 +32,7 @@ export interface DiffViewerProps {
  * here (same LCS semantics) rather than imported.
  */
 export function DiffViewer(props: DiffViewerProps): ReactElement {
-  const { change, mode, onModeChange, onSaved } = props
+  const { change, mode, onModeChange, onSaved, disabled = false } = props
   const [draft, setDraft] = useState<string>(change.after ?? '')
   const [saved, setSaved] = useState(false)
 
@@ -67,7 +69,7 @@ export function DiffViewer(props: DiffViewerProps): ReactElement {
           spellCheck: false,
         }),
         createElement('div', { className: css.editorActions },
-          createElement('button', { onClick: save, className: cssSaveButton }, '保存编辑'),
+          createElement('button', { onClick: save, disabled, className: cssSaveButton }, '保存编辑'),
           saved ? createElement('span', { className: css.savedHint }, '已保存——变更已重置为待审') : null,
         ),
       ),

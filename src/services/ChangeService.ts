@@ -43,6 +43,22 @@ export interface NewFileChange {
   toolCallId?: string
 }
 
+/** One state-machine action result that failed (no throw / no 500). */
+export interface ActionError {
+  kind: 'error'
+  message: string
+}
+
+/** Whether a state action result is an error (vs the happy-path value). */
+export function isActionError<T>(result: T | ActionError): result is ActionError {
+  return typeof result === 'object' && result !== null && (result as ActionError).kind === 'error'
+}
+
+/** Normalize a thrown transition error into an {@link ActionError}. */
+function actionError(error: unknown): ActionError {
+  return { kind: 'error', message: error instanceof Error ? error.message : String(error) }
+}
+
 /**
  * Result of {@link ChangeService.acceptAllAndApply}.
  *
@@ -186,16 +202,38 @@ export class ChangeService extends Service {
     return change
   }
 
-  approve(id: string): FileChange {
-    const change = this.transition(id, 'approved')
-    this.ctx.emit('change:approved', change)
-    return change
+  /** Approve a pending change; illegal transitions return a structured error. */
+  approve(id: string): FileChange | ActionError {
+    try {
+      const change = this.transition(id, 'approved')
+      this.ctx.emit('change:approved', change)
+      return change
+    } catch (error) {
+      return actionError(error)
+    }
   }
 
-  reject(id: string): FileChange {
-    const change = this.transition(id, 'rejected')
-    this.ctx.emit('change:rejected', change)
-    return change
+  /** Reject a change; illegal transitions return a structured error. */
+  reject(id: string): FileChange | ActionError {
+    try {
+      const change = this.transition(id, 'rejected')
+      this.ctx.emit('change:rejected', change)
+      return change
+    } catch (error) {
+      return actionError(error)
+    }
+  }
+
+  /**
+   * Re-pend a rejected or rolled-back change so it can be reviewed again.
+   * Illegal transitions return a structured error.
+   */
+  repend(id: string): FileChange | ActionError {
+    try {
+      return this.transition(id, 'pending')
+    } catch (error) {
+      return actionError(error)
+    }
   }
 
   /**
@@ -297,7 +335,10 @@ export class ChangeService extends Service {
   approveAll(sessionId: string): FileChange[] {
     const updated: FileChange[] = []
     for (const change of this.listBySession(sessionId)) {
-      if (change.status === 'pending') updated.push(this.approve(change.id))
+      if (change.status === 'pending') {
+        const result = this.approve(change.id)
+        if (!isActionError(result)) updated.push(result)
+      }
     }
     return updated
   }
@@ -306,7 +347,10 @@ export class ChangeService extends Service {
   rejectAll(sessionId: string): FileChange[] {
     const updated: FileChange[] = []
     for (const change of this.listBySession(sessionId)) {
-      if (change.status === 'pending') updated.push(this.reject(change.id))
+      if (change.status === 'pending') {
+        const result = this.reject(change.id)
+        if (!isActionError(result)) updated.push(result)
+      }
     }
     return updated
   }
@@ -335,7 +379,12 @@ export class ChangeService extends Service {
         result.skipped.push(change.id)
         continue
       }
-      this.approve(change.id)
+      const approval = this.approve(change.id)
+      if (isActionError(approval)) {
+        // Should not happen (pending → approved is legal), but never crash.
+        result.failed.push({ id: change.id, message: approval.message })
+        continue
+      }
       result.approved.push(change.id)
       const outcome = await this.apply(change.id)
       if (outcome.kind === 'applied') {
