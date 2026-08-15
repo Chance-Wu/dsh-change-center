@@ -99,11 +99,13 @@ export class SnapshotService extends Service {
     } else {
       // 4.2:内容寻址去重 —— 相同内容只存一个 blob。
       const hash = sha256(change.before)
+      // 先写 marker 再写 blob:marker 先落盘会让并发的 gcBlobs 看到引用,
+      // 避免「blob 已写、marker 未写」的窗口里把刚写的 blob 当孤儿删掉。
+      await fs.writeText(await fs.resolve(join(markerDir, 'blob')), hash, undefined, undefined, PLUGIN_STATE_POLICY)
       const blob = await fs.resolve(join(this.blobRoot, hash))
       if (await fs.stat(blob) === undefined) {
         await fs.writeText(blob, change.before, undefined, undefined, PLUGIN_STATE_POLICY)
       }
-      await fs.writeText(await fs.resolve(join(markerDir, 'blob')), hash, undefined, undefined, PLUGIN_STATE_POLICY)
     }
     // S-5/4.2:每 agent 会话快照数设上限,只留最新的 N 个,磁盘有界。
     await this.pruneSession(change.sessionId, this.perSessionKeep)

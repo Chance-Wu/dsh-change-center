@@ -20,7 +20,7 @@
 
 import { createElement, useEffect, useMemo, useState, type ReactElement } from 'react'
 import type {
-  ChangeCenterApi, GitActionResult, GitResponse, WireAcceptAllResult, WireChange, WireHistoryEvent, WirePolicyEvaluation, WirePolicyHit, WireReview, WireRisk,
+  ActionResult, ChangeCenterApi, GitActionResult, GitResponse, WireAcceptAllResult, WireChange, WireHistoryEvent, WirePolicyEvaluation, WirePolicyHit, WireReview, WireRisk,
 } from './index.ts'
 import { ChangeTree, dedupeByPath, relativePath } from './ChangeTree.tsx'
 import type { DiffMode } from './DiffViewer.tsx'
@@ -122,8 +122,8 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
   const [changes, setChanges] = useState<WireChange[]>([])
   const [treeLoading, setTreeLoading] = useState(true)
   const [selectedChange, setSelectedChange] = useState<string | null>(null)
-  // 5.x:默认 Focus Diff(只显修改块 + 一句话),统一/并排/编辑查看完整代码。
-  const [diffMode, setDiffMode] = useState<DiffMode>('focus')
+  // 默认并排(完整双栏,直观展示改动);聚焦/统一/编辑为可选视图。
+  const [diffMode, setDiffMode] = useState<DiffMode>('side-by-side')
   const [mode, setMode] = useState<'focus' | 'review'>(defaultMode)
   const [moreOpen, setMoreOpen] = useState(false)
   const [filter, setFilter] = useState<ChangeFilter>('all')
@@ -410,7 +410,15 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
   /** 3.x:树行主操作 = 应用/重试应用(与 ReviewBar 同一路径)。 */
   const quickApply = (id: string): void => {
     api.applyChange(id)
-      .then(afterAction)
+      .then((result: ActionResult) => {
+        afterAction()
+        if ((result as { kind?: string }).kind === 'applied') {
+          // 应用成功即给撤销入口,误点可立即回滚。
+          setToast({ text: '✓ 已应用', kind: 'ok', undo: () => quickAction(id, 'rollback') })
+        } else if ((result as { kind?: string }).kind === 'conflict') {
+          setToast({ text: '应用冲突:磁盘内容与捕获版本不一致', kind: 'warn' })
+        }
+      })
       .catch(err => setError(err instanceof Error ? err.message : String(err)))
   }
 
@@ -869,8 +877,17 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
               draft: editorDraft,
               onDraftChange: setEditorDraft,
               onSaved: (after) => {
+                // 流程优化:编辑保存 = 更新记录 + 立即应用(一步到位);冲突时提示处理。
                 api.editChange(change.id, after)
-                  .then(afterAction)
+                  .then(() => api.applyChange(change.id))
+                  .then((result: ActionResult) => {
+                    afterAction()
+                    if ((result as { kind?: string }).kind === 'conflict' || (result as { error?: string }).error !== undefined) {
+                      setToast({ text: '已保存，但应用时发现外部修改，可查看差异后处理', kind: 'warn' })
+                    } else {
+                      setToast({ text: '✓ 已保存并应用', kind: 'ok', undo: () => quickAction(change.id, 'rollback') })
+                    }
+                  })
                   .catch(err => setError(err instanceof Error ? err.message : String(err)))
               },
               disabled: panelLocked,
@@ -895,7 +912,7 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
             }),
           ),
       ),
-      // 4.x 底部 Action Dock:选中计数 + 拒绝/应用选中/全部应用(只读面隐藏)。
+      // 4.x 底部 Action Dock:选中计数 + 回滚/拒绝全部/全部应用(只读面隐藏)。
       readOnly ? null : createElement('div', { className: css.actionDock },
         createElement('div', { className: css.dockInfo },
           createElement('span', { className: css.dockCount }, `${fileChanges.length} 个变更`),
@@ -917,11 +934,6 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
             disabled: busy || pendingCount === 0,
             className: baseCss.buttonDanger,
           }, '拒绝全部'),
-          createElement('button', {
-            onClick: () => change !== null && quickApply(change.id),
-            disabled: busy || change === null || (change.status !== 'pending' && change.status !== 'approved'),
-            className: baseCss.buttonGhost,
-          }, '应用选中'),
           createElement('button', {
             onClick: () => applyAll(false),
             disabled: busy || pendingCount === 0,

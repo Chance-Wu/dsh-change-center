@@ -1,13 +1,16 @@
 /* ChangeTree：文件树卡片样式，只引用设计 token。 */
 .tree {
   flex: 0 0 clamp(220px, 22%, 280px);
-  max-height: 480px;
+  /* 撑满三栏高度,树内部滚动(设置区优化:不再被 480px 截断)。 */
+  height: 100%;
+  min-height: 0;
   overflow: auto;
   border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 12px;
   background: var(--dsw-alias-bg-layer-2);
   padding: 6px;
   min-width: 0;
+  box-sizing: border-box;
 }
 
 .title {
@@ -362,17 +365,6 @@
 }
 .actionMore:hover {
   color: var(--dsw-alias-label-primary);
-}
-
-.actionAccept {
-  border: 1px solid var(--dsw-alias-state-success-primary);
-  background: transparent;
-  color: var(--dsw-alias-state-success-primary);
-  font-size: var(--dsw-font-xxxs-11);
-  font-family: inherit;
-  padding: 1px 8px;
-  border-radius: 6px;
-  cursor: pointer;
 }
 
 .actionApply {

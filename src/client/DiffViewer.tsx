@@ -72,8 +72,8 @@ export function DiffViewer(props: DiffViewerProps): ReactElement {
   }
   const dirty = draft !== (change.after ?? '')
 
-  // 4.x:有 AI 审查时代码 diff 默认折叠,先看摘要再展开。
-  const [diffOpen, setDiffOpen] = useState(props.review === undefined || props.review === null)
+  // diff 默认展开:完整代码始终可见,AI 摘要块在上方常显;可手动收起。
+  const [diffOpen, setDiffOpen] = useState(true)
   // 5.x per-change 解释(从会话级 AI 审查按文件投影,零新增 LLM)。
   const explanation = useMemo(
     () => props.review !== undefined && props.review !== null ? buildExplanation(change, props.review, props.changes ?? []) : null,
@@ -150,7 +150,7 @@ export function DiffViewer(props: DiffViewerProps): ReactElement {
           className: css.diffToggle,
           onClick: () => setDiffOpen(!diffOpen),
           'aria-expanded': diffOpen,
-        }, `${diffOpen ? '▾' : '▸'} 展开代码 Diff`)
+        }, `${diffOpen ? '▾' : '▸'} ${diffOpen ? '收起' : '展开'}代码 Diff`)
         : null,
       (diffOpen || props.review === undefined || props.review === null) && (
         totalDiffLines > LARGE_DIFF_LINES && !diffExpanded
@@ -171,12 +171,12 @@ export function DiffViewer(props: DiffViewerProps): ReactElement {
         createElement('div', { className: css.editorActions },
           // 3.0.9:弱视觉 —— 脏状态由文件名旁的小圆点表达,这里只保留动作。
           justSaved
-            ? createElement('span', { className: css.savedHint }, '✓ 已保存')
+            ? createElement('span', { className: css.savedHint }, '✓ 已保存并应用')
             : null,
           dirty
             ? createElement('button', { onClick: discard, disabled, className: baseCss.buttonGhost }, '放弃')
             : null,
-          createElement('button', { onClick: save, disabled: disabled || !dirty, className: baseCss.buttonPrimary }, '保存修改'),
+          createElement('button', { onClick: save, disabled: disabled || !dirty, className: baseCss.buttonPrimary }, '保存并应用'),
         ),
       )
       ),

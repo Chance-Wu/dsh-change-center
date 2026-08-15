@@ -27,8 +27,6 @@ export interface ChangeTreeProps {
   changes: WireChange[]
   selected: string | null
   onSelect: (id: string) => void
-  /** Quick approve from a tree row (pending changes only). */
-  onApprove?: (id: string) => void
   /** Quick reject from a tree row (pending/approved/failed). */
   onReject?: (id: string) => void
   /** Quick rollback from a tree row (applied). */
@@ -207,22 +205,18 @@ function Chevron(props: { collapsed: boolean }): ReactElement {
 }
 
 /** 3.x:每行唯一主操作(应用优先,其余收进「···」)。 */
-function primaryAction(actions: ChangeActions): 'apply' | 'retry-apply' | 'rollback' | 'repend' | 'reject' | 'approve' | null {
+function primaryAction(actions: ChangeActions): 'apply' | 'retry-apply' | 'rollback' | 'repend' | 'reject' | null {
   if (actions.canApply) return 'apply'
   if (actions.canRetryApply) return 'retry-apply'
   if (actions.canRollback) return 'rollback'
   if (actions.canRepend) return 'repend'
   if (actions.canReject) return 'reject'
-  if (actions.canApprove) return 'approve'
   return null
 }
 
-/** 3.x:主操作之外的其余操作(经「···」展开)。 */
-function remainingActions(actions: ChangeActions): ('approve' | 'reject')[] {
-  const out: ('approve' | 'reject')[] = []
-  if (actions.canApprove) out.push('approve')
-  if (actions.canReject) out.push('reject')
-  return out
+/** 3.x:主操作之外的其余操作(经「···」展开)——仅拒绝。 */
+function remainingActions(actions: ChangeActions): ('reject')[] {
+  return actions.canReject ? ['reject'] : []
 }
 
 /** 风险 chip 渲染:低=不显示,中/高显示等级。 */
@@ -239,7 +233,6 @@ function riskChipFor(change: WireChange): ReactElement | null {
 function actionClass(kind: string): string {
   switch (kind) {
     case 'reject': return css.actionReject
-    case 'approve': return css.actionAccept
     case 'apply':
     case 'retry-apply': return css.actionApply
     default: return css.actionGhost
@@ -283,9 +276,8 @@ function renderFileRow(
         else if (primary === 'rollback') props.onRollback?.(change.id)
         else if (primary === 'repend') props.onRepend?.(change.id)
         else if (primary === 'reject') props.onReject?.(change.id)
-        else if (primary === 'approve') props.onApprove?.(change.id)
       }),
-    }, primary === 'retry-apply' ? '重试' : primary === 'apply' ? '应用' : primary === 'approve' ? '接受' : primary)
+    }, primary === 'retry-apply' ? '重试' : primary === 'apply' ? '应用' : primary)
     : null
 
   const moreButton = showActions && remaining.length > 0
@@ -299,11 +291,8 @@ function renderFileRow(
     ? remaining.map(kind => createElement('button', {
       key: kind,
       className: actionClass(kind),
-      onClick: stop(() => {
-        if (kind === 'approve') props.onApprove?.(change.id)
-        else props.onReject?.(change.id)
-      }),
-    }, kind === 'approve' ? '接受' : '拒绝'))
+      onClick: stop(() => props.onReject?.(change.id)),
+    }, '拒绝'))
     : []
 
   return createElement('button', {

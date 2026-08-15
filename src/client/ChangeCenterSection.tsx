@@ -42,7 +42,7 @@ export function ChangeCenterSection(props: ChangeCenterSectionProps): ReactEleme
   const [sessions, setSessions] = useState<WireSession[]>([])
   const [total, setTotal] = useState(0)
   const [selectedSession, setSelectedSession] = useState<string | null>(null)
-  const [view, setView] = useState<SectionView>('current')
+  const [view, setView] = useState<SectionView>('sessions')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
@@ -258,7 +258,7 @@ function CurrentCard(props: {
   )
 }
 
-/** 会话视图：按 今天/昨天/更早 分组的历史时间线（V-10）。 */
+/** 会话视图：按 今天/昨天/更早 分组的历史时间线（V-10）。默认只展开「今天」。 */
 function SessionTimeline(props: {
   sessions: WireSession[]
   selectedSession: string | null
@@ -270,30 +270,52 @@ function SessionTimeline(props: {
 }): ReactElement {
   const { sessions, selectedSession, onSelect, total, loadedCount, onLoadMore, loadingMore } = props
   const groups = groupByDay(sessions)
+  // 默认折叠「昨天/更早」,只展示「今天」;点击分组名展开。
+  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set(['昨天', '更早']))
+  const toggleGroup = (label: string): void => {
+    setCollapsed(prev => {
+      const next = new Set(prev)
+      if (next.has(label)) next.delete(label)
+      else next.add(label)
+      return next
+    })
+  }
   return createElement('div', { className: css.timeline },
-    groups.map(group => createElement('div', { key: group.label, className: css.dayGroup },
-      createElement('div', { className: css.dayLabel }, group.label),
-      group.sessions.map(s => {
-        const meta = statusMetaOf(s)
-        return createElement('button', {
-          key: s.id,
-          className: css.sessionRow,
-          'data-selected': selectedSession === s.id,
-          onClick: () => onSelect(s.id),
+    groups.map(group => {
+      const isCollapsed = collapsed.has(group.label)
+      return createElement('div', { key: group.label, className: css.dayGroup },
+        createElement('button', {
+          className: css.dayLabelButton,
+          onClick: () => toggleGroup(group.label),
+          'aria-expanded': !isCollapsed,
         },
-        createElement('span', { className: css.sessionIcon, title: meta.label }, meta.icon),
-        createElement('span', { className: css.sessionMain },
-          createElement('span', { className: css.sessionName }, s.name),
-          // 3.x:行内一句话摘要(host 落库;旧会话缺省时省略)。
-          s.summary !== undefined && s.summary.length > 0
-            ? createElement('span', { className: css.sessionSummary }, s.summary)
-            : null,
-          createElement('span', { className: css.sessionMeta },
-            `${s.statistics.files} 个文件 · +${s.statistics.additions} -${s.statistics.deletions} · ${timeOf(s.createdAt)}`),
+        createElement('span', null, `${isCollapsed ? '▸' : '▾'} ${group.label}`),
+        createElement('span', { className: css.dayCount }, `${group.sessions.length}`),
         ),
-        )
-      }),
-    )),
+        !isCollapsed
+          ? group.sessions.map(s => {
+            const meta = statusMetaOf(s)
+            return createElement('button', {
+              key: s.id,
+              className: css.sessionRow,
+              'data-selected': selectedSession === s.id,
+              onClick: () => onSelect(s.id),
+            },
+            createElement('span', { className: css.sessionIcon, title: meta.label }, meta.icon),
+            createElement('span', { className: css.sessionMain },
+              createElement('span', { className: css.sessionName }, s.name),
+              // 3.x:行内一句话摘要(host 落库;旧会话缺省时省略)。
+              s.summary !== undefined && s.summary.length > 0
+                ? createElement('span', { className: css.sessionSummary }, s.summary)
+                : null,
+              createElement('span', { className: css.sessionMeta },
+                `${s.statistics.files} 个文件 · +${s.statistics.additions} -${s.statistics.deletions} · ${timeOf(s.createdAt)}`),
+            ),
+            )
+          })
+          : null,
+      )
+    }),
     loadedCount < total
       ? createElement('button', {
         className: css.loadMore,

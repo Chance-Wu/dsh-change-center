@@ -1,6 +1,6 @@
 /* 变更中心设置区：当前/会话双视图 + 右侧共享审查面板，只引用设计 token。 */
 .section {
-  padding: 16px;
+  padding: 20px 24px;
   min-width: 0;
 }
 
@@ -9,7 +9,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 4px;
+  margin-bottom: 16px;
 }
 
 .header {
@@ -73,28 +73,35 @@
 
 .layout {
   display: flex;
-  gap: 16px;
-  align-items: flex-start;
+  gap: 20px;
+  align-items: stretch;
 }
 
 .sessionList {
-  flex: 0 0 240px;
+  flex: 0 0 300px;
   display: flex;
   flex-direction: column;
   gap: 6px;
-  max-height: 640px;
+  /* 撑满可用高度:设置区滚动时给一个视口比例上限,内容多时列表内部滚动。 */
+  height: 100%;
+  max-height: calc(100vh - 240px);
+  min-height: 460px;
   overflow: auto;
+  padding-right: 4px;
 }
 
 /* ── 当前视图：Focus 卡片（V-2 / V-13） ─────────────────────────── */
 .currentCard {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 12px;
+  gap: 8px;
+  padding: 14px 16px;
   border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 12px;
-  background: var(--dsw-alias-bg-layer-2);
+  border-radius: 14px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--dsw-alias-bg-layer-3) 55%, transparent), transparent 40%),
+    var(--dsw-alias-bg-layer-2);
+  box-shadow: var(--dsw-shadow-lv1);
   cursor: pointer;
   transition: background 120ms ease, border-color 120ms ease;
 }
@@ -172,11 +179,47 @@
   letter-spacing: 0.02em;
 }
 
-.sessionRow {
+/* 4.x:可折叠的分组头(默认只展开「今天」) */
+.dayLabelButton {
+  composes: dayLabel;
+  background: none;
+  border: none;
+  padding: 2px 4px;
+  margin: 0 -4px;
+  font: inherit;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
+  gap: 6px;
+  cursor: pointer;
+  border-radius: 6px;
+  color: var(--dsw-alias-label-secondary);
+  transition: background 100ms ease;
+}
+.dayLabelButton:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.dayCount {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 15px;
+  padding: 0 5px;
+  border-radius: 8px;
+  font-size: var(--dsw-font-xxxs-11);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--dsw-alias-label-secondary);
+  background: var(--dsw-alias-bg-layer-3);
+  border: 1px solid var(--dsw-alias-border-l1);
+}
+
+.sessionRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
   border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 12px;
   background: var(--dsw-alias-bg-layer-2);
@@ -199,13 +242,14 @@
   flex: none;
   font-weight: 700;
   color: var(--dsw-alias-label-secondary);
+  line-height: 1.4;
 }
 
 .sessionMain {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
 }
 
 .sessionName {
@@ -216,13 +260,15 @@
   white-space: nowrap;
 }
 
-/* 3.x:会话行内一句话摘要 */
+/* 3.x/4.x:会话行内一句话摘要 —— 最多两行,不再被单行截断 */
 .sessionSummary {
   font-size: var(--dsw-font-xxxs-11);
   color: var(--dsw-alias-label-secondary);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.5;
 }
 
 .sessionMeta {
@@ -257,9 +303,11 @@
 }
 
 .reviewWrap {
-  flex: 1 1 760px;
+  flex: 1 1 auto;
   min-width: 0;
-  min-height: 560px;
+  /* 让面板至少保底可用的工作高度;设置区若为流式滚动,面板仍完整展示。 */
+  min-height: 620px;
+  display: flex;
 }
 
 @media (prefers-reduced-motion: reduce) {

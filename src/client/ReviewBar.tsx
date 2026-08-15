@@ -128,13 +128,6 @@ export function ReviewBar(props: ReviewBarProps): ReactElement {
             className: baseCss.buttonDanger,
           }, '拒绝')
           : null,
-        actions.canApprove
-          ? createElement('button', {
-            onClick: () => run(() => api.changeAction(change.id, 'approve')),
-            disabled: inert,
-            className: baseCss.buttonPrimary,
-          }, '接受')
-          : null,
         actions.canApply
           ? createElement('button', {
             onClick: () => run(() => api.applyChange(change.id)),
