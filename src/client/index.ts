@@ -173,14 +173,13 @@ export interface ChangeCenterApi {
   analytics(): Promise<WireAnalytics>
   listSessions(params?: PageParams): Promise<WirePage<WireSession>>
   sessionChanges(sessionId: string, params?: PageParams): Promise<WirePage<WireChange>>
-  changeAction(id: string, action: 'approve' | 'reject' | 'rollback' | 'repend'): Promise<ActionResult>
+  changeAction(id: string, action: 'rollback' | 'repend'): Promise<ActionResult>
   applyChange(id: string, force?: boolean): Promise<ActionResult>
   editChange(id: string, after: string): Promise<unknown>
   /** 4.6:读取磁盘当前版本(冲突中心对比用)。 */
   changeCurrent(id: string): Promise<{ exists: boolean; content: string | null }>
   /** 4.6:写入用户明确选择的版本(冲突解决)。 */
   resolveChange(id: string, content: string): Promise<ActionResult>
-  sessionAction(sessionId: string, action: 'accept-all' | 'reject-all'): Promise<{ updated: string[] }>
   /** 全部接收并应用;force 时绕过 deny 门禁与外部修改守卫(「仍然全部应用」)。 */
   acceptAllAndApply(sessionId: string, force?: boolean): Promise<WireAcceptAllResult>
   rollbackAll(sessionId: string): Promise<WireRollbackAllResult>
@@ -249,8 +248,6 @@ export function apiOf(): ChangeCenterApi {
     editChange: (id, after) => postJson(`/api/change-center/changes/${id}/edit`, { after }),
     changeCurrent: (id) => getJson(`/api/change-center/changes/${id}/current`).then(body => body as { exists: boolean; content: string | null }),
     resolveChange: (id, content) => postJson(`/api/change-center/changes/${id}/resolve`, { content }).then(body => body as ActionResult),
-    sessionAction: (sessionId, action) =>
-      postJson(`/api/change-center/sessions/${sessionId}/${action}`).then(body => body as { updated: string[] }),
     acceptAllAndApply: (sessionId, force) =>
       postJson(`/api/change-center/sessions/${sessionId}/accept-all-apply${force ? '?force=1' : ''}`).then(body => (body as { result: WireAcceptAllResult }).result),
     rollbackAll: (sessionId) =>

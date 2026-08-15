@@ -1,5 +1,5 @@
 /**
- * Review bar: per-change review actions (approve / reject / apply / rollback)
+ * Review bar: per-change review actions (apply / rollback / re-pend)
  * with external-modification conflict handling. 对齐 Harness 设计 token。
  * @module dsh-change-center/client
  */
@@ -121,13 +121,6 @@ export function ReviewBar(props: ReviewBarProps): ReactElement {
         createElement('span', { className: css.toolMeta }, `通过 ${change.toolName}`),
       ),
       createElement('div', { className: css.actions },
-        actions.canReject
-          ? createElement('button', {
-            onClick: () => run(() => api.changeAction(change.id, 'reject')),
-            disabled: inert,
-            className: baseCss.buttonDanger,
-          }, '拒绝')
-          : null,
         actions.canApply
           ? createElement('button', {
             onClick: () => run(() => api.applyChange(change.id)),
@@ -207,14 +200,6 @@ export function ReviewBar(props: ReviewBarProps): ReactElement {
           })
           : null,
         createElement('div', { className: css.conflictActions },
-          createElement('button', {
-            onClick: () => {
-              setViewingConflict(false)
-              // 保留我的:磁盘已是用户版本,拒绝该变更即可。
-              run(() => api.changeAction(change.id, 'reject'))
-            },
-            className: baseCss.buttonGhost,
-          }, '保留我的'),
           merging
             ? createElement('button', {
               onClick: () => run(() => api.resolveChange(change.id, mergedDraft)),
@@ -253,8 +238,8 @@ export function ReviewBar(props: ReviewBarProps): ReactElement {
     change.status === 'failed'
       ? createElement('div', { className: css.failedHint },
         lastError !== null && lastError.length > 0
-          ? `应用失败：${lastError}。可「重试应用」；持续失败可拒绝该变更。`
-          : '应用失败:可「重试应用」;持续失败可拒绝该变更。')
+          ? `应用失败：${lastError}。可「重试应用」；仍失败可在编辑器中修改后重试。`
+          : '应用失败:可「重试应用」;仍失败可在编辑器中修改后重试。')
       : null,
   )
 }

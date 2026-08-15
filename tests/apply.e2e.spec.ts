@@ -178,17 +178,6 @@ describe('Apply Engine e2e', () => {
     expect(ctx.changeCenter.get(change.id)?.status).toBe('rolled_back')
   })
 
-  it('session-level accept-all approves every pending change', async () => {
-    const ctx = await setup()
-    const agent = agentWithSession('batch-1')
-    await executeWrite(ctx, { file_path: join(tempDir, 'a.txt'), content: 'A\n' }, agent)
-    await executeWrite(ctx, { file_path: join(tempDir, 'b.txt'), content: 'B\n' }, agent)
-    expect(ctx.changeCenter.listBySession('batch-1').every(c => c.status === 'pending')).toBe(true)
-    const updated = ctx.changeCenter.approveAll('batch-1')
-    expect(updated).toHaveLength(2)
-    expect(ctx.changeCenter.listBySession('batch-1').every(c => c.status === 'approved')).toBe(true)
-  })
-
   it('refuses to edit an applied change (roll back first)', async () => {
     const ctx = await setup()
     const agent = agentWithSession('edit-applied-1')
@@ -204,7 +193,7 @@ describe('Apply Engine e2e', () => {
     expect(() => ctx.changeCenter.edit(change.id, 'edited\n')).toThrow(/roll back first/)
   })
 
-  it('accept-all-and-apply approves and applies every pending change', async () => {
+  it('accept-all-and-apply applies every pending change', async () => {
     const ctx = await setup()
     const agent = agentWithSession('accept-apply-1')
     const a = join(tempDir, 'A.java')
@@ -216,7 +205,6 @@ describe('Apply Engine e2e', () => {
     await executeWrite(ctx, { file_path: b, content: 'new b\n' }, agent)
 
     const result = await ctx.changeCenter.acceptAllAndApply('accept-apply-1')
-    expect(result.approved).toHaveLength(2)
     expect(result.applied).toHaveLength(2)
     expect(result.failed).toHaveLength(0)
     expect(readFileSync(a, 'utf8')).toBe('new a\n')

@@ -63,11 +63,6 @@ export interface RollbackAllResult {
   failed: { id: string; message: string }[]
 }
 
-/** Whether a state action result is an error (vs the happy-path value). */
-export function isActionError<T>(result: T | ActionError): result is ActionError {
-  return typeof result === 'object' && result !== null && (result as ActionError).kind === 'error'
-}
-
 /** Normalize a thrown transition error into an {@link ActionError}. */
 function actionError(error: unknown): ActionError {
   return { kind: 'error', message: error instanceof Error ? error.message : String(error) }
@@ -79,12 +74,9 @@ function actionError(error: unknown): ActionError {
  * The counters partition the session's changes into disjoint categories:
  * `applied + failed + blocked` = pending changes actually processed, `skipped`
  * = other non-pending changes, `superseded` = older writes to a path whose
- * newer change was processed. `approved` reports the (transient) approval of
- * each processed pending change and may overlap `applied`/`failed`.
+ * newer change was processed.
  */
 export interface AcceptAllResult {
-  /** Pending changes approved during this run (may overlap applied/failed). */
-  approved: string[]
   /** Approved changes successfully applied (incl. command/external). */
   applied: string[]
   /** Changes skipped: not pending (already applied/rejected/approved). */
@@ -236,28 +228,6 @@ export class ChangeService extends Service {
     change.updatedAt = Date.now()
     this.persist()
     return change
-  }
-
-  /** Approve a pending change; illegal transitions return a structured error. */
-  approve(id: string): FileChange | ActionError {
-    try {
-      const change = this.transition(id, 'approved')
-      this.ctx.emit('change.updated', change)
-      return change
-    } catch (error) {
-      return actionError(error)
-    }
-  }
-
-  /** Reject a change; illegal transitions return a structured error. */
-  reject(id: string): FileChange | ActionError {
-    try {
-      const change = this.transition(id, 'rejected')
-      this.ctx.emit('change.updated', change)
-      return change
-    } catch (error) {
-      return actionError(error)
-    }
   }
 
   /**
@@ -428,30 +398,6 @@ export class ChangeService extends Service {
     return this.apply(id, true)
   }
 
-  /** Approve every pending change in a session. */
-  approveAll(sessionId: string): FileChange[] {
-    const updated: FileChange[] = []
-    for (const change of this.listBySession(sessionId)) {
-      if (change.status === 'pending') {
-        const result = this.approve(change.id)
-        if (!isActionError(result)) updated.push(result)
-      }
-    }
-    return updated
-  }
-
-  /** Reject every pending change in a session. */
-  rejectAll(sessionId: string): FileChange[] {
-    const updated: FileChange[] = []
-    for (const change of this.listBySession(sessionId)) {
-      if (change.status === 'pending') {
-        const result = this.reject(change.id)
-        if (!isActionError(result)) updated.push(result)
-      }
-    }
-    return updated
-  }
-
   /**
    * Accept-and-apply every pending change in a session: approve each pending
    * change, then apply it (command/external changes are marked applied; file
@@ -471,7 +417,7 @@ export class ChangeService extends Service {
    *   (Vibe UI 「仍然全部应用」); mirrors the single-change `apply(force)`.
    */
   async acceptAllAndApply(sessionId: string, force = false): Promise<AcceptAllResult> {
-    const result: AcceptAllResult = { approved: [], applied: [], skipped: [], superseded: [], failed: [], blocked: [], prepared: 0 }
+    const result: AcceptAllResult = { applied: [], skipped: [], superseded: [], failed: [], blocked: [], prepared: 0 }
     const seenPaths = new Set<string>()
     const policies = this.ctx.get('policies')
     const applyEngine: ApplyService | undefined = this.ctx.get('applyEngine')
@@ -515,15 +461,8 @@ export class ChangeService extends Service {
       pendingList.push(change)
     }
     result.prepared = pendingList.length
-    // Phase B — Commit:只执行通过预检的变更(approve → snapshot → apply)。
+    // Phase B — Commit:只执行通过预检的变更(pending 直接 apply)。
     for (const change of pendingList) {
-      const approval = this.approve(change.id)
-      if (isActionError(approval)) {
-        // Should not happen (pending → approved is legal), but never crash.
-        result.failed.push({ id: change.id, message: approval.message })
-        continue
-      }
-      result.approved.push(change.id)
       const outcome = await this.apply(change.id, force)
       if (outcome.kind === 'applied') {
         result.applied.push(change.id)

@@ -352,21 +352,6 @@
   display: inline-flex;
 }
 
-/* 3.x:「···」—— 折叠的次要操作 */
-.actionMore {
-  border: 1px solid var(--dsw-alias-border-l2);
-  background: transparent;
-  color: var(--dsw-alias-label-tertiary);
-  font-size: var(--dsw-font-xxxs-11);
-  font-family: inherit;
-  padding: 1px 6px;
-  border-radius: 6px;
-  cursor: pointer;
-}
-.actionMore:hover {
-  color: var(--dsw-alias-label-primary);
-}
-
 .actionApply {
   border: 1px solid var(--dsw-alias-state-business-primary);
   background: transparent;
@@ -382,17 +367,6 @@
   border: 1px solid var(--dsw-alias-border-l2);
   background: transparent;
   color: var(--dsw-alias-label-secondary);
-  font-size: var(--dsw-font-xxxs-11);
-  font-family: inherit;
-  padding: 1px 8px;
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-.actionReject {
-  border: 1px solid var(--dsw-alias-state-error-primary);
-  background: transparent;
-  color: var(--dsw-alias-state-error-primary);
   font-size: var(--dsw-font-xxxs-11);
   font-family: inherit;
   padding: 1px 8px;

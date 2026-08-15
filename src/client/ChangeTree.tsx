@@ -27,8 +27,6 @@ export interface ChangeTreeProps {
   changes: WireChange[]
   selected: string | null
   onSelect: (id: string) => void
-  /** Quick reject from a tree row (pending/approved/failed). */
-  onReject?: (id: string) => void
   /** Quick rollback from a tree row (applied). */
   onRollback?: (id: string) => void
   /** Quick re-pend from a tree row (rejected/rolled_back). */
@@ -39,9 +37,6 @@ export interface ChangeTreeProps {
   disabled?: boolean
   /** S-6:策略 deny 的变更 id 集合 → 行尾 ⛔ 徽标。 */
   deniedIds?: ReadonlySet<string>
-  /** 3.x:展开「···」的行(显示其余操作)。 */
-  expandedRows?: ReadonlySet<string>
-  onToggleMore?: (id: string) => void
   /** 数据加载中:显示骨架而非「暂无文件变更」。 */
   loading?: boolean
 }
@@ -205,18 +200,12 @@ function Chevron(props: { collapsed: boolean }): ReactElement {
 }
 
 /** 3.x:每行唯一主操作(应用优先,其余收进「···」)。 */
-function primaryAction(actions: ChangeActions): 'apply' | 'retry-apply' | 'rollback' | 'repend' | 'reject' | null {
+function primaryAction(actions: ChangeActions): 'apply' | 'retry-apply' | 'rollback' | 'repend' | null {
   if (actions.canApply) return 'apply'
   if (actions.canRetryApply) return 'retry-apply'
   if (actions.canRollback) return 'rollback'
   if (actions.canRepend) return 'repend'
-  if (actions.canReject) return 'reject'
   return null
-}
-
-/** 3.x:主操作之外的其余操作(经「···」展开)——仅拒绝。 */
-function remainingActions(actions: ChangeActions): ('reject')[] {
-  return actions.canReject ? ['reject'] : []
 }
 
 /** 风险 chip 渲染:低=不显示,中/高显示等级。 */
@@ -229,10 +218,9 @@ function riskChipFor(change: WireChange): ReactElement | null {
   }, risk === 'high' ? '高风险' : '中风险')
 }
 
-/** 快捷操作语义配色:接受=绿、应用/重试=蓝、拒绝=红、回滚/重处理=中性。 */
+/** 快捷操作语义配色:应用/重试=蓝、回滚/重处理=中性。 */
 function actionClass(kind: string): string {
   switch (kind) {
-    case 'reject': return css.actionReject
     case 'apply':
     case 'retry-apply': return css.actionApply
     default: return css.actionGhost
@@ -262,10 +250,8 @@ function renderFileRow(
     }, meta.icon)
   // S-6:策略 deny 的变更显示 ⛔(优先级高于状态字形)。
   const denied = props.deniedIds?.has(change.id) ?? false
-  // 3.x:主操作 + 「···」展开其余;只保留合法操作(由 actionsFor 决定)。
+  // 3.x:每行唯一主操作(由 actionsFor 决定合法性)。
   const primary = primaryAction(actions)
-  const remaining = remainingActions(actions)
-  const moreExpanded = props.expandedRows?.has(change.id) ?? false
 
   const stop = (handler: () => void) => (event: MouseEvent) => { event.stopPropagation(); handler() }
   const primaryButton = primary !== null
@@ -275,25 +261,9 @@ function renderFileRow(
         if (primary === 'apply' || primary === 'retry-apply') props.onApply?.(change.id)
         else if (primary === 'rollback') props.onRollback?.(change.id)
         else if (primary === 'repend') props.onRepend?.(change.id)
-        else if (primary === 'reject') props.onReject?.(change.id)
       }),
     }, primary === 'retry-apply' ? '重试' : primary === 'apply' ? '应用' : primary)
     : null
-
-  const moreButton = showActions && remaining.length > 0
-    ? createElement('button', {
-      className: css.actionMore,
-      onClick: stop(() => props.onToggleMore?.(change.id)),
-      title: moreExpanded ? '收起其他操作' : '其他操作',
-    }, '···')
-    : null
-  const extraButtons = moreExpanded
-    ? remaining.map(kind => createElement('button', {
-      key: kind,
-      className: actionClass(kind),
-      onClick: stop(() => props.onReject?.(change.id)),
-    }, '拒绝'))
-    : []
 
   return createElement('button', {
     key: change.id,
@@ -317,8 +287,6 @@ function renderFileRow(
   showActions && primary !== null
     ? createElement('span', { className: css.rowActions, onClick: (event: MouseEvent) => event.stopPropagation() },
       primaryButton,
-      moreButton,
-      ...extraButtons,
     )
     : null,
   )
@@ -384,24 +352,9 @@ export function ChangeTree(props: ChangeTreeProps): ReactElement {
   const [opFilter, setOpFilter] = useState<ReadonlySet<string>>(new Set())
   const [pathPrefix, setPathPrefix] = useState('')
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set())
-  // 3.x:展开「···」的行(显示其余操作)。
-  const [expandedRows, setExpandedRows] = useState<Set<string>>(() => new Set())
   // 4.x:窗口化渲染的滚动位置。
   const [scrollTop, setScrollTop] = useState(0)
   const treeRef = useRef<HTMLDivElement | null>(null)
-
-  const rowProps: ChangeTreeProps = {
-    ...props,
-    expandedRows,
-    onToggleMore: (id) => {
-      setExpandedRows(prev => {
-        const next = new Set(prev)
-        if (next.has(id)) next.delete(id)
-        else next.add(id)
-        return next
-      })
-    },
-  }
 
   const filterActive = query !== '' || opFilter.size > 0 || pathPrefix !== ''
   const filtered = useMemo(() => {
@@ -514,7 +467,7 @@ export function ChangeTree(props: ChangeTreeProps): ReactElement {
             createElement('span', { className: css.groupStats },
               `${group.changes.length} · +${group.additions} -${group.deletions}`),
           ),
-          group.changes.map(change => renderFileRow(change, rowProps, 0)),
+          group.changes.map(change => renderFileRow(change, props, 0)),
         ))
         : createElement('div', { className: css.dirArea },
           createElement('div', { className: css.dirToolbar },
@@ -539,7 +492,7 @@ export function ChangeTree(props: ChangeTreeProps): ReactElement {
             createElement('span', { className: css.dirStats },
               `${row.dir!.files} · +${row.dir!.additions} -${row.dir!.deletions}`),
             )
-            : renderFileRow(row.change as WireChange, rowProps, row.depth),
+            : renderFileRow(row.change as WireChange, props, row.depth),
           ),
           ),
         ),

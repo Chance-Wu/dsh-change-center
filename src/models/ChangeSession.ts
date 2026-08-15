@@ -1,6 +1,6 @@
 /**
  * Change-session domain model: groups the {@link FileChange} records one
- * agent turn produced, so review surfaces can accept or reject a whole
+ * agent turn produced, so review surfaces can apply or roll back a whole
  * batch at once.
  * @module dsh-change-center/models
  */

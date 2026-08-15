@@ -12,8 +12,6 @@ import type { ChangeStatus } from './FileChange.ts'
 
 /** User-facing actions the state machine exposes to the UI/API. */
 export type ChangeAction =
-  | 'approve'
-  | 'reject'
   | 'apply'
   | 'retry-apply'
   | 'rollback'
@@ -40,10 +38,11 @@ export const CHANGE_TRANSITIONS: Record<ChangeStatus, ChangeStatus[]> = {
  * future entry point all consume it — the UI never decides action legality.
  */
 export const CHANGE_ACTIONS: Record<ChangeStatus, ChangeAction[]> = {
-  pending: ['approve', 'reject', 'apply'],
-  approved: ['reject', 'apply'],
+  // 5.x 流程收敛:pending 主路径即「应用」(不再提供「接受/拒绝」中间态)。
+  pending: ['apply'],
+  approved: ['apply'],
   // failed 不显示「接受」:批量中失败的变更已被接受。
-  failed: ['reject', 'retry-apply'],
+  failed: ['retry-apply'],
   applied: ['rollback'],
   rejected: ['repend'],
   rolled_back: ['repend'],

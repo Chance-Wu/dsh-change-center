@@ -45,14 +45,15 @@ describe('change-center store persistence', () => {
   }
 
   it('restores changes and sessions after a host restart', async () => {
-    // First host: record one change and approve it; the change.created event
-    // opens a fallback session.
+    // First host: record one change and transition it; the change.created
+    // event opens a fallback session.
     const ctx1 = await makeCtx()
     ctx1.changeCenter.record({
       sessionId: 'agent-1', cwd: '/tmp', kind: 'file', path: 'a.txt',
       operation: 'modify', before: 'x\n', after: 'y\n', source: 'agent', toolName: 'edit',
     })
-    ctx1.changeCenter.approve('change-1')
+    // 5.x:不再有 approve/reject;apply 一次(无引擎 → failed)以验证状态持久化。
+    await ctx1.changeCenter.apply('change-1')
     // Let the fire-and-forget persist chains flush to disk.
     await waitFor(() => existsSync(join(tempRoot, 'change-center', 'store', 'changes.jsonl')))
 
@@ -62,7 +63,7 @@ describe('change-center store persistence', () => {
     const changes = ctx2.changeCenter.list()
     expect(changes).toHaveLength(1)
     expect(changes[0]?.path).toBe('a.txt')
-    expect(changes[0]?.status).toBe('approved')
+    expect(changes[0]?.status).toBe('failed')
 
     await waitFor(() => ctx2.changeSessions.list().length > 0)
     const sessions = ctx2.changeSessions.list()

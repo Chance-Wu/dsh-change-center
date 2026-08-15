@@ -12,8 +12,6 @@ import type { ChangeStatus } from '../models/FileChange.ts'
 
 /** Which actions are available for a change in a given status. */
 export interface ChangeActions {
-  canApprove: boolean
-  canReject: boolean
   canApply: boolean
   canRetryApply: boolean
   canRollback: boolean
@@ -23,8 +21,6 @@ export interface ChangeActions {
 
 /**
  * Actions allowed per status, from the shared CHANGE_ACTIONS table:
- * - approve: pending
- * - reject: pending | approved | failed
  * - apply: pending | approved
  * - retryApply: failed
  * - rollback: applied
@@ -33,8 +29,6 @@ export interface ChangeActions {
 export function actionsFor(status: ChangeStatus): ChangeActions {
   const actions = CHANGE_ACTIONS[status]
   return {
-    canApprove: actions.includes('approve'),
-    canReject: actions.includes('reject'),
     canApply: actions.includes('apply'),
     canRetryApply: actions.includes('retry-apply'),
     canRollback: actions.includes('rollback'),

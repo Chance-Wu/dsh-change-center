@@ -8,37 +8,37 @@ import { describe, expect, it } from 'vitest'
 import { actionsFor } from '../src/client/changeActions.ts'
 
 describe('actionsFor', () => {
-  it('pending: approve / reject / apply', () => {
+  it('pending: apply only（5.x 主路径即应用，不再提供接受/拒绝）', () => {
     expect(actionsFor('pending')).toEqual({
-      canApprove: true, canReject: true, canApply: true,
+      canApply: true,
       canRetryApply: false, canRollback: false, canRepend: false,
     })
   })
 
-  it('approved: reject / apply', () => {
+  it('approved: apply only（历史 approved 状态仍可应用）', () => {
     expect(actionsFor('approved')).toEqual({
-      canApprove: false, canReject: true, canApply: true,
+      canApply: true,
       canRetryApply: false, canRollback: false, canRepend: false,
     })
   })
 
-  it('failed: reject / retryApply (no approve — bulk already accepted)', () => {
+  it('failed: retryApply only', () => {
     expect(actionsFor('failed')).toEqual({
-      canApprove: false, canReject: true, canApply: false,
+      canApply: false,
       canRetryApply: true, canRollback: false, canRepend: false,
     })
   })
 
   it('applied: rollback only', () => {
     expect(actionsFor('applied')).toEqual({
-      canApprove: false, canReject: false, canApply: false,
+      canApply: false,
       canRetryApply: false, canRollback: true, canRepend: false,
     })
   })
 
   it('rejected / rolled_back: repend only (no dead ends)', () => {
     const expected = {
-      canApprove: false, canReject: false, canApply: false,
+      canApply: false,
       canRetryApply: false, canRollback: false, canRepend: true,
     }
     expect(actionsFor('rejected')).toEqual(expected)

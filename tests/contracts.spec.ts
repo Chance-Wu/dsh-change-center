@@ -78,8 +78,6 @@ function recordFile(ctx: Context, sessionId: string, path: string, over: Partial
 describe('A. 状态机契约', () => {
   it('actionsFor 与共享 CHANGE_STATE 完全一致,且每个操作都有合法转移', () => {
     const actionTarget: Record<ChangeAction, ChangeStatus> = {
-      approve: 'approved',
-      reject: 'rejected',
       apply: 'applied',
       'retry-apply': 'applied',
       rollback: 'rolled_back',
@@ -88,8 +86,6 @@ describe('A. 状态机契约', () => {
     for (const status of Object.keys(CHANGE_ACTIONS) as ChangeStatus[]) {
       const actions = CHANGE_ACTIONS[status]
       const matrix = actionsFor(status)
-      expect(matrix.canApprove).toBe(actions.includes('approve'))
-      expect(matrix.canReject).toBe(actions.includes('reject'))
       expect(matrix.canApply).toBe(actions.includes('apply'))
       expect(matrix.canRetryApply).toBe(actions.includes('retry-apply'))
       expect(matrix.canRollback).toBe(actions.includes('rollback'))
@@ -116,12 +112,11 @@ describe('A. 状态机契约', () => {
       sessionId: 's', cwd: tempDir, path: 'a.txt', operation: 'modify',
       before: 'x\n', after: 'y\n', source: 'agent', toolName: 'edit',
     }).id
-    expect(ctx.changeCenter.approve(id)).not.toBeNull()
-    const again = ctx.changeCenter.approve(id)
+    // 5.x:无 approve/reject;pending → repend 是非法转移。
+    const again = ctx.changeCenter.repend(id)
     expect(again).toMatchObject({ kind: 'error' })
-    // applied 状态不能 approve / reject。
-    const applied = ctx.changeCenter.get(id)
-    expect(applied?.status).toBe('approved')
+    const pending = ctx.changeCenter.get(id)
+    expect(pending?.status).toBe('pending')
   })
 })
 
@@ -187,7 +182,9 @@ describe('D. Batch 契约', () => {
     const c2 = recordFile(ctx, sessionId, appTarget)
     const c3 = recordFile(ctx, sessionId, join(tempDir, 'src', 'security', 'Config.java'), { operation: 'delete', before: 'x\n', after: null })
     const c4 = recordFile(ctx, sessionId, join(tempDir, 'skip.ts'))
-    ctx.changeCenter.approve(c4)
+    // 5.x:无 approve/reject;先把 c4 应用掉(非 pending → skipped)。
+    writeFileSync(join(tempDir, 'skip.ts'), 'changed\n')
+    await ctx.changeCenter.apply(c4)
 
     const result = await ctx.changeCenter.acceptAllAndApply(sessionId)
     const all = [...result.applied, ...result.failed.map(f => f.id), ...result.blocked.map(b => b.id), ...result.skipped, ...result.superseded]
@@ -209,7 +206,7 @@ describe('E. SSE 契约', () => {
     const ctx = await fullSetup()
     await ctx.plugin(SessionStore)
     // 先记录变更(会触发 fallback session 的 session.created,不计入断言)。
-    const id = recordFile(ctx, 'sse-1', join(tempDir, 'sse.txt'))
+    recordFile(ctx, 'sse-1', join(tempDir, 'sse.txt'))
     const updated: string[] = []
     const created: string[] = []
     const completed: string[] = []
@@ -217,8 +214,13 @@ describe('E. SSE 契约', () => {
     ctx.on('session.created', () => { created.push('x') })
     ctx.on('session.completed', () => { completed.push('x') })
 
-    ctx.changeCenter.reject(id)
-    expect(updated).toEqual(['rejected'])
+    // 5.x:无 approve/reject;命令变更 apply 直接落 applied,验证 change.updated 事件。
+    const cmd = ctx.changeCenter.record({
+      sessionId: 'sse-1', cwd: tempDir, kind: 'command', path: 'npm test', operation: 'execute',
+      before: null, after: 'npm test', source: 'agent', toolName: 'bash',
+    })
+    await ctx.changeCenter.apply(cmd.id)
+    expect(updated).toEqual(['applied'])
 
     const session = ctx.sessions.create(SessionId('sse-agent'), {
       meta: { cwd: tempDir, createdAt: Date.now() },
@@ -242,10 +244,7 @@ describe('F. 黄金流程', () => {
     const idA = recordFile(ctx, sessionId, a, { before: 'a1\n' })
     const idB = recordFile(ctx, sessionId, b, { before: 'b1\n' })
 
-    // review:接受两个变更。
-    ctx.changeCenter.approve(idA)
-    ctx.changeCenter.approve(idB)
-    // apply:单条应用(approved → apply)。
+    // apply:两条 pending 直接应用(5.x 主路径,无需 approve)。
     expect((await ctx.changeCenter.apply(idA)).kind).toBe('applied')
     expect((await ctx.changeCenter.apply(idB)).kind).toBe('applied')
     expect(readFileSync(a, 'utf8')).toBe('changed\n')

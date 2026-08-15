@@ -14,6 +14,15 @@ function setup() {
   return Promise.all([ctx.plugin(ChangeService), ctx.plugin(SessionService)]).then(() => ctx)
 }
 
+/** Poll until the disk-backed store has loaded the given change id. */
+async function waitForChange(ctx: Context, id: string, timeoutMs = 4000): Promise<void> {
+  const start = Date.now()
+  while (ctx.changeCenter.get(id) === undefined) {
+    if (Date.now() - start > timeoutMs) return
+    await new Promise(resolve => setTimeout(resolve, 25))
+  }
+}
+
 describe('ChangeService', () => {
   it('records a change and derives a diff', async () => {
     const ctx = await setup()
@@ -61,41 +70,55 @@ describe('ChangeService', () => {
       source: 'agent',
       toolName: 'edit',
     })
-    ctx.changeCenter.approve(change.id)
-    expect(ctx.changeCenter.get(change.id)?.status).toBe('approved')
-    // approve is a review transition; apply (real write-back) requires the
-    // apply/snapshot engines and reports an error when they are absent.
+    // 5.x:无 approve/reject;pending 直接 apply(无引擎 → failed)。
     const result = await ctx.changeCenter.apply(change.id)
     expect(result.kind).toBe('error')
     expect(ctx.changeCenter.get(change.id)?.status).toBe('failed')
-    // failed can be re-pended, then rejected
+    // failed → edit 回 pending(重试/编辑的恢复路径)。
     ctx.changeCenter.edit(change.id, 'y\n')
     expect(ctx.changeCenter.get(change.id)?.status).toBe('pending')
-    ctx.changeCenter.reject(change.id)
-    expect(ctx.changeCenter.get(change.id)?.status).toBe('rejected')
-    // applied/rejected 非法转移返回结构化错误,不再 throw(避免 500)。
-    const err = ctx.changeCenter.reject(change.id)
+    // pending → repend 是非法转移,返回结构化错误,不再 throw(避免 500)。
+    const err = ctx.changeCenter.repend(change.id)
     expect(err).toMatchObject({ kind: 'error' })
     expect((err as { message: string }).message).toContain('cannot transition')
   })
 
-  it('rejects unknown ids with a structured error', async () => {
+  it('returns a structured error for unknown ids', async () => {
     const ctx = await setup()
-    const err = ctx.changeCenter.approve('nope')
+    const err = ctx.changeCenter.repend('nope')
     expect(err).toMatchObject({ kind: 'error' })
     expect((err as { message: string }).message).toContain('unknown change')
   })
 
-  it('repends a rejected change back to pending', async () => {
-    const ctx = await setup()
-    ctx.changeCenter.record({
-      sessionId: 'repend-1', cwd: '/tmp/ws', path: 'a.txt', operation: 'modify',
-      before: 'x\n', after: 'y\n', source: 'agent', toolName: 'edit',
-    })
-    ctx.changeCenter.reject('change-1')
-    expect(ctx.changeCenter.get('change-1')?.status).toBe('rejected')
-    const result = ctx.changeCenter.repend('change-1')
-    expect(result).toMatchObject({ id: 'change-1', status: 'pending' })
+  it('repends a historical rejected change back to pending', async () => {
+    const { LocalFileSystem } = await import('@deepseek-ai/dsh-fs-local')
+    const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const root = mkdtempSync(join(tmpdir(), 'dsh-repend-'))
+    process.env.DSH_HOME = root
+    try {
+      // 5.x:reject 已移除,rejected 是历史状态 —— seed 一条旧记录验证 repend 兼容。
+      const storeDir = join(root, 'change-center', 'store')
+      mkdirSync(storeDir, { recursive: true })
+      writeFileSync(join(storeDir, 'changes.jsonl'), `${JSON.stringify({
+        id: 'change-1', sessionId: 'repend-1', cwd: '/tmp/ws', kind: 'file', path: 'a.txt',
+        operation: 'modify', before: 'x\n', after: 'y\n', source: 'agent', toolName: 'edit',
+        status: 'rejected', createdAt: Date.now(), updatedAt: Date.now(),
+      })}\n`)
+      const ctx = new Context()
+      await ctx.plugin(LocalFileSystem, { cwd: root })
+      await ctx.plugin(ChangeService)
+      await ctx.plugin(SessionService)
+      // 磁盘加载是异步的:轮询直到记录可见。
+      await waitForChange(ctx, 'change-1')
+      expect(ctx.changeCenter.get('change-1')?.status).toBe('rejected')
+      const result = ctx.changeCenter.repend('change-1')
+      expect(result).toMatchObject({ id: 'change-1', status: 'pending' })
+    } finally {
+      delete process.env.DSH_HOME
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 
   it('rejects repend for a pending change (structured error)', async () => {
@@ -125,7 +148,7 @@ describe('ChangeService', () => {
     expect(seen).toEqual(['b.txt'])
   })
 
-  it('accept-all-and-apply approves pending and reports apply outcomes', async () => {
+  it('accept-all-and-apply applies pending and reports apply outcomes', async () => {
     const ctx = await setup()
     ctx.changeCenter.record({
       sessionId: 'batch-a', cwd: '/tmp/ws', path: 'a.txt', operation: 'modify',
@@ -140,8 +163,7 @@ describe('ChangeService', () => {
       before: null, after: 'npm install', source: 'agent', toolName: 'bash',
     })
     const result = await ctx.changeCenter.acceptAllAndApply('batch-a')
-    // 全部 pending 都被批准;命令变更直接 applied;文件变更因缺少应用引擎失败。
-    expect(result.approved).toHaveLength(3)
+    // 命令变更直接 applied;文件变更因缺少应用引擎失败。
     expect(result.applied).toHaveLength(1)
     expect(result.failed).toHaveLength(2)
     expect(result.skipped).toHaveLength(0)
@@ -155,9 +177,9 @@ describe('ChangeService', () => {
       sessionId: 'batch-b', cwd: '/tmp/ws', path: 'a.txt', operation: 'modify',
       before: 'x\n', after: 'y\n', source: 'agent', toolName: 'edit',
     })
-    ctx.changeCenter.reject('change-1')
+    // 5.x:无 approve/reject;先 apply 把变更弄成 failed(非 pending → skipped)。
+    await ctx.changeCenter.apply('change-1')
     const result = await ctx.changeCenter.acceptAllAndApply('batch-b')
-    expect(result.approved).toHaveLength(0)
     expect(result.skipped).toEqual(['change-1'])
     expect(result.superseded).toHaveLength(0)
   })
@@ -176,7 +198,6 @@ describe('ChangeService', () => {
     })
     const result = await ctx.changeCenter.acceptAllAndApply('batch-c')
     // 最新一条被处理(无引擎 → 失败);旧路径写入归入 superseded。
-    expect(result.approved).toEqual(['change-2'])
     expect(result.failed).toHaveLength(1)
     expect(result.failed[0]?.id).toBe('change-2')
     expect(result.superseded).toEqual(['change-1'])

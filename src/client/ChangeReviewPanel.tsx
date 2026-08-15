@@ -186,7 +186,7 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
     refreshIntelligence()
   }, [sessionId])
 
-  // 2.2 L-2/L-4:实时变更流 —— AI 工作中文件逐条出现、apply/reject 实时同步,
+  // 2.2 L-2/L-4:实时变更流 —— AI 工作中文件逐条出现、apply/rollback 实时同步,
   // 多标签页共享同一 SSE 连接自动一致;事件驱动,无轮询。
   useEffect(() => {
     const unsubscribe = api.subscribeEvents(() => {
@@ -356,10 +356,6 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
             void api.applyChange(change.id).then(afterAction).catch(err => setError(err instanceof Error ? err.message : String(err)))
           }
           return
-        case 'r':
-        case 'x':
-          if (change !== null && !panelLocked && actionsFor(change.status).canReject) quickAction(change.id, 'reject')
-          return
         case 'u':
         case 'z':
           if (change !== null && !panelLocked && actionsFor(change.status).canRollback) quickAction(change.id, 'rollback')
@@ -401,7 +397,7 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
   }
 
   /** Tree quick actions + the review bar share one action path. */
-  const quickAction = (id: string, action: 'approve' | 'reject' | 'rollback' | 'repend'): void => {
+  const quickAction = (id: string, action: 'rollback' | 'repend'): void => {
     api.changeAction(id, action)
       .then(afterAction)
       .catch(err => setError(err instanceof Error ? err.message : String(err)))
@@ -445,17 +441,6 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
         } else {
           setToast({ text: '没有待应用的变更', kind: 'warn' })
         }
-      })
-      .catch(err => setToast({ text: err instanceof Error ? err.message : String(err), kind: 'error' }))
-      .finally(() => setBusy(false))
-  }
-
-  const rejectAll = (): void => {
-    setBusy(true)
-    api.sessionAction(sessionId, 'reject-all')
-      .then(result => {
-        afterAction()
-        setToast({ text: `× 已拒绝 ${result.updated.length} 个变更`, kind: 'ok' })
       })
       .catch(err => setToast({ text: err instanceof Error ? err.message : String(err), kind: 'error' }))
       .finally(() => setBusy(false))
@@ -788,7 +773,6 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
           createElement('div', { className: css.shortcutsCard, onClick: (event: MouseEvent) => event.stopPropagation() },
             createElement('div', { className: css.shortcutsTitle }, '快捷键'),
             createElement('div', { className: css.shortcutsRow }, createElement('kbd', null, 'A'), ' 应用当前变更'),
-            createElement('div', { className: css.shortcutsRow }, createElement('kbd', null, 'R'), ' 拒绝当前变更'),
             createElement('div', { className: css.shortcutsRow }, createElement('kbd', null, 'U'), ' 回滚当前变更'),
             createElement('div', { className: css.shortcutsRow }, createElement('kbd', null, 'J'), createElement('kbd', null, 'K'), ' 上 / 下切换文件'),
             createElement('div', { className: css.shortcutsRow }, createElement('kbd', null, 'M'), ' 展开 AI 摘要面板'),
@@ -843,8 +827,6 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
           ...(readOnly
             ? { disabled: true }
             : {
-              onApprove: (id: string) => quickAction(id, 'approve'),
-              onReject: (id: string) => quickAction(id, 'reject'),
               onRollback: (id: string) => quickAction(id, 'rollback'),
               onRepend: (id: string) => quickAction(id, 'repend'),
               onApply: quickApply,
@@ -929,11 +911,6 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
               title: '撤销本会话所有已应用的变更',
             }, '↶ 回滚')
             : null,
-          createElement('button', {
-            onClick: rejectAll,
-            disabled: busy || pendingCount === 0,
-            className: baseCss.buttonDanger,
-          }, '拒绝全部'),
           createElement('button', {
             onClick: () => applyAll(false),
             disabled: busy || pendingCount === 0,
