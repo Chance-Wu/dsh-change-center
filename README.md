@@ -2,32 +2,33 @@
 
 DeepSeek Harness 插件:文件变更的**捕获 → 审查 → 拒绝 / 应用 → 回滚**中心。
 
-> 范围(2026-08):专注**变更的接收、拒绝、回滚**,并提供会话级「全部接收并应用」批量操作。
+> 范围(2026-08):专注**变更的接收、拒绝、回滚**,并提供会话级批量操作(「全部接收并应用」「全部拒绝」「全部回滚」)。
 > 审批(Approval)与工作流(Workflow)已移除;AI 审查 / 风险 / 验证 / 策略(`allow|warn|deny`) / git / 历史 保留为审查辅助。
 
 ## 功能
 
 - **捕获**:监听 `tools/result`,把 `write`/`edit` 结果记为文件变更、`bash` 记为命令记录,自动按 agent turn 分组为变更会话;会话以「Turn N · HH:MM」命名(一次 turn = 一次 agent 回复周期内捕获的变更)。
 - **审查**:
-  - 变更树:默认按扩展名分组(`*.ext`,含聚合行数统计),可切换为可折叠目录树;路径显示为工作区相对路径;行悬停出现 接受/拒绝 快捷操作,支持全部展开/折叠。
-  - 统一 diff 视图(纯文本 / 左右对照 / 编辑器)+ 每变更 接受/拒绝/应用/回滚 操作栏,编辑器可直接改后保存。
-- **会话级批量操作**:全部接收 / 全部拒绝;「全部接收并应用」一次批准全部待审变更并写回工作区,返回 `{approved, applied, skipped, failed}` 汇总(失败项含原因);面板带待审计数徽标与结果摘要。
+  - 变更树:**默认目录树**(目录可折叠、行统计、全部展开/折叠),可切换「按扩展名 `*.ext`」分组(含聚合行数);路径为工作区相对路径;同一文件多次写入**只显示最新一次**(按路径去重);行悬停快捷操作:接受 / 拒绝 / 回滚(applied)/ 重新处理(rejected、rolled_back)。
+  - 统一 diff 视图(纯文本 / 左右对照 / 编辑器)+ 每变更操作栏:接受 / 拒绝 / 应用(pending、approved)、重试应用(failed)、回滚(applied)、重新处理(rejected、rolled_back);按钮可用性由单一 `actionsFor` 矩阵驱动,编辑器可直接改后保存。
+- **会话级批量操作**:「全部接收并应用」(批准全部待审并写回,返回 `{approved, applied, skipped, superseded, failed}`,superseded=被覆盖的旧写入)、「全部拒绝」、「全部回滚」(撤销全部已应用,返回 `{rolledBack, missing, failed}`,缺快照即无法恢复);面板带待审计数徽标与结果摘要(「×」或 6 秒后自动关闭)。
 - **辅助**:Git 仓库信息与工作树状态、AI 审查(结构化 JSON findings)、确定性风险规则(评分+原因)、验证任务、策略门控(allow/warn/deny)、历史时间线。
 - **后台任务**:验证 / AI 审查 / AI 修复 / 修复循环以 job 形式提交,HTTP 请求立即返回 `{job}`;客户端持有 `JobHandle {jobId, done, cancel}`,智能面板在任务运行中显示「取消」按钮(取消为正常终态);`/events` SSE 流把变更/会话/job 事件推给浏览器,列表自动刷新、无需轮询。
-- **持久化**:变更与会话落 `$DSH_HOME/change-center/store/*.jsonl`,历史落 `history/`,策略覆盖落 `policies.json`,快照落 `snapshots/` —— 全部经 `ctx.fs` 接缝(沙箱/审批/原子写),重启后数据保留。
+- **持久化**:变更与会话落 `$DSH_HOME/change-center/store/*.jsonl`,历史落 `history/`,策略覆盖落 `policies.json`,快照落 `snapshots/` —— 全部经 `ctx.fs` 接缝(原子写),重启后数据保留;列表接口支持 `limit/offset` 分页(客户端会话列表带「加载更多」)。
 
 ## 架构
 
 ```
 src/
 ├── capture/   ToolCapture —— tools/result → ChangeService.record
-├── services/  ChangeService(状态机+存储,含 acceptAllAndApply) · SessionService · ApplyService(哈希守卫+原子写)
-│              SnapshotService(快照/回滚) · DiffService(自研 LCS,大文件回退) · JsonlStore · JobService(后台任务)
+├── services/  ChangeService(状态机+存储,含 acceptAllAndApply/rollbackAll) · SessionService · ApplyService(哈希守卫+原子写)
+│              SnapshotService(快照/回滚) · DiffService(自研 LCS,大文件回退) · JsonlStore · JobService(后台任务) · pluginFs(沙箱策略)
 ├── git/       GitService(经 ctx.shell 只读)
 ├── verification/ · review/ · risk/ · history/ · policy/ · fix/ · loop/
-├── api/       routes.ts —— /api/change-center 同源 REST + /events SSE
+├── api/       routes.ts —— /api/change-center 同源 REST + /events SSE(表格驱动路由)
 └── client/    conversation.view「变更」标签页 + settings.section「变更中心」
-               ChangeTree(扩展名/目录双视图) · DiffViewer · ReviewBar · IntelligencePanel(后台任务+取消)
+               ChangeReviewPanel(批量操作+面板锁) · ChangeTree(目录/扩展名双视图) · DiffViewer · ReviewBar
+               · changeActions(操作矩阵单一事实源) · ErrorBoundary(渲染出错可恢复)
 ```
 
 变更状态机:`pending → approved → applied → rolled_back`,以及 `rejected` / `failed`,
@@ -46,7 +47,7 @@ src/
 
 - **重新处理** = `rejected|rolled_back → pending`(`POST /changes/:id/repend`),消除死胡同。
 - **全部接收并应用** = 对每路径最新待审变更 先接受再应用(approve+apply);非待审计入跳过、被覆盖的旧写入计入 superseded。
-- 批量进行中/结果展示期间,面板锁定:操作栏、目录树快速操作、编辑器保存全部禁用(结果摘要「×」关闭后恢复)。
+- 批量进行中/结果展示期间,面板锁定:操作栏、目录树快速操作、编辑器保存全部禁用;结果摘要「×」关闭或 6 秒后自动消失后恢复(回滚等单条入口重新可用)。
 
 ## 开发
 
@@ -58,6 +59,12 @@ pnpm build       # tsc + tsdown(浏览器半边打包 lib/client.js)
 ```
 
 > 测试将 `$DSH_HOME` 指向临时目录,持久化写入可写区域(与 DSH 沙箱兼容)。
+> 当前测试基线:**147 个用例 / 20 个文件**(含真实 HTTP 路由集成测试 `routes-e2e.spec.ts`)。
+>
+> **沙箱说明**(`src/services/pluginFs.ts`):插件自有状态(`$DSH_HOME/change-center/` 下 store/snapshot/history/policies 写入)经
+> `ctx.fs.writeText(..., PLUGIN_STATE_POLICY)`(`danger-full-access`)写入;「应用/回滚」的工作区写回经 `workspaceWritePolicy(change.cwd)`
+> (`workspace-write`,锚定变更的工作区)。`dsh-fs-sandbox` 后端据此放行,因此默认 `dsh web` 启动(workspace-write 模式)下
+> 持久化与 apply 不再被会话文件围栏拒绝。覆盖 JsonlStore / SnapshotService / HistoryService / PolicyService / ApplyService。
 
 ### 接入 DSH
 
@@ -79,6 +86,7 @@ pnpm build       # tsc + tsdown(浏览器半边打包 lib/client.js)
 | `GET /sessions/:id/git[/diff|log]` · `GET /sessions/:id/verification` · `POST .../verification/run` | Git 与验证 |
 | `GET|POST /sessions/:id/review[/run]` · `.../risk[/analyze]` | AI 审查与风险 |
 | `GET /sessions/:id/history[/timeline]` | 历史时间线 |
+| `GET /sessions/:id/policy-evaluation` | 当前会话变更命中的策略评估 |
 | `GET|POST /policies` · `POST /policies/:id/{update,delete}` | 策略管理 |
 | `GET /sessions/:id/fix` · `POST /sessions/:id/fix/run` · `POST /sessions/:id/loop/run` | AI 修复与修复循环 |
 | `GET /sessions/:id/jobs` · `GET /jobs/:id` · `POST /jobs/:id/cancel` | 后台任务查询与取消 |
