@@ -14,6 +14,7 @@
 import { createElement, useEffect, useMemo, useState, type ReactElement } from 'react'
 import type { ChangeCenterApi, WireAcceptAllResult, WireChange } from './index.ts'
 import { ChangeTree, dedupeByPath } from './ChangeTree.tsx'
+import { ErrorBoundary } from './ErrorBoundary.tsx'
 import { countDiff } from '../services/DiffService.ts'
 import { DiffViewer } from './DiffViewer.tsx'
 import { ReviewBar } from './ReviewBar.tsx'
@@ -113,10 +114,16 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
   }, [fileChanges])
   const change = fileChanges.find(c => c.id === selectedChange) ?? null
   const pendingCount = fileChanges.filter(c => c.status === 'pending').length
-  const failedCount = acceptResult?.failed.length ?? 0
+  // 防御性读取:宿主若返回旧版结果结构(缺 superseded 等字段),用 ?? 兜底,
+  // 避免渲染时访问 undefined.length 导致整页崩溃。
+  const appliedCount = acceptResult?.applied?.length ?? 0
+  const failedCount = acceptResult?.failed?.length ?? 0
+  const skippedCount = acceptResult?.skipped?.length ?? 0
+  const supersededCount = acceptResult?.superseded?.length ?? 0
 
-  return createElement('div', { className: css.panel },
-    error !== null ? createElement('p', { className: css.error }, error) : null,
+  return createElement(ErrorBoundary, null,
+    createElement('div', { className: css.panel },
+      error !== null ? createElement('p', { className: css.error }, error) : null,
     createElement(SessionHeader, {
       session: {
         id: sessionId, name, status, agentSessionId, workspace, changeIds: fileChanges.map(c => c.id), statistics: displayStats,
@@ -139,19 +146,19 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
       acceptResult !== null
         ? createElement('div', { className: css.resultSummary },
           createElement('div', { className: css.resultHead },
-            createElement('span', { className: css.resultOk }, `已应用 ${acceptResult.applied.length}`),
+            createElement('span', { className: css.resultOk }, `已应用 ${appliedCount}`),
             failedCount > 0
               ? createElement('span', { className: css.resultFail }, `失败 ${failedCount}`)
               : null,
-            acceptResult.skipped.length > 0 || acceptResult.superseded.length > 0
+            skippedCount > 0 || supersededCount > 0
               ? createElement('span', { className: css.resultMuted },
-                `跳过 ${acceptResult.skipped.length}${acceptResult.superseded.length > 0 ? ` · 旧写入 ${acceptResult.superseded.length}` : ''}`)
+                `跳过 ${skippedCount}${supersededCount > 0 ? ` · 旧写入 ${supersededCount}` : ''}`)
               : null,
             createElement('button', { onClick: () => setAcceptResult(null), className: css.resultClose }, '×'),
           ),
-          acceptResult.failed.length > 0
+          failedCount > 0
             ? createElement('ul', { className: css.resultFailList },
-              acceptResult.failed.map(item => createElement('li', { key: item.id },
+              (acceptResult?.failed ?? []).map(item => createElement('li', { key: item.id },
                 createElement('span', { className: css.resultFailId }, item.id),
                 createElement('span', null, item.message),
               )),
@@ -200,6 +207,7 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
         api,
         onChanged: afterAction,
       }),
+    ),
     ),
   )
 }
