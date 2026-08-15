@@ -55,10 +55,11 @@ export function ReviewBar(props: ReviewBarProps): ReactElement {
     }
   }
 
-  // 按钮按状态机合法转移显示:接受(pending/failed)、拒绝(pending/approved/failed)、
+  // 按钮按状态机合法转移显示:接受(pending)、拒绝(pending/approved/failed)、
   // 应用(pending/approved)、重试应用(failed)、回滚(applied)。
+  // failed 不显示「接受」:批量「全部接收并应用」中失败的变更已被接受,再提供接受是误导。
   const status = change.status
-  const canApprove = status === 'pending' || status === 'failed'
+  const canApprove = status === 'pending'
   const canReject = status === 'pending' || status === 'approved' || status === 'failed'
   const inert = busy || disabled
 
