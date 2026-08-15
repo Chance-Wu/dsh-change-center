@@ -12,7 +12,7 @@
  */
 
 import { createElement, useEffect, useMemo, useState, type ReactElement } from 'react'
-import type { ChangeCenterApi, WireAcceptAllResult, WireChange } from './index.ts'
+import type { ChangeCenterApi, WireAcceptAllResult, WireChange, WireRollbackAllResult } from './index.ts'
 import { ChangeTree, dedupeByPath } from './ChangeTree.tsx'
 import { ErrorBoundary } from './ErrorBoundary.tsx'
 import { countDiff } from '../services/DiffService.ts'
@@ -58,6 +58,7 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
   const [busy, setBusy] = useState(false)
   const [acceptResult, setAcceptResult] = useState<WireAcceptAllResult | null>(null)
   const [acceptError, setAcceptError] = useState<string | null>(null)
+  const [rollbackResult, setRollbackResult] = useState<WireRollbackAllResult | null>(null)
 
   const refresh = (): void => {
     api.sessionChanges(sessionId)
@@ -83,7 +84,7 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
   }
 
   /** Tree quick actions + the review bar share one action path. */
-  const quickAction = (id: string, action: 'approve' | 'reject' | 'repend'): void => {
+  const quickAction = (id: string, action: 'approve' | 'reject' | 'rollback' | 'repend'): void => {
     api.changeAction(id, action)
       .then(afterAction)
       .catch(err => setError(err instanceof Error ? err.message : String(err)))
@@ -108,8 +109,18 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
       .finally(() => setBusy(false))
   }
 
+  /** 会话级「全部回滚」:撤销本会话所有已应用的变更。 */
+  const rollbackAll = (): void => {
+    setBusy(true)
+    setAcceptError(null)
+    api.rollbackAll(sessionId)
+      .then(result => { setRollbackResult(result); afterAction() })
+      .catch(err => setAcceptError(err instanceof Error ? err.message : String(err)))
+      .finally(() => setBusy(false))
+  }
+
   // 面板锁:批量进行中或结果展示期间,所有单条入口(操作栏/树快速操作/编辑器保存)禁用。
-  const panelLocked = busy || acceptResult !== null
+  const panelLocked = busy || acceptResult !== null || rollbackResult !== null
 
   // 只审查真实文件变更：命令执行等「没有变更」的记录不进入文件树与 diff；
   // 同一文件的多次写入只保留最新一次（按路径去重）。
@@ -127,6 +138,7 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
   }, [fileChanges])
   const change = fileChanges.find(c => c.id === selectedChange) ?? null
   const pendingCount = fileChanges.filter(c => c.status === 'pending').length
+  const appliedTotal = fileChanges.filter(c => c.status === 'applied').length
   // 防御性读取:宿主若返回旧版结果结构(缺 superseded 等字段),用 ?? 兜底,
   // 避免渲染时访问 undefined.length 导致整页崩溃。
   const appliedCount = acceptResult?.applied?.length ?? 0
@@ -158,6 +170,11 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
         disabled: busy || pendingCount === 0,
         className: baseCss.buttonDanger,
       }, '全部拒绝'),
+      createElement('button', {
+        onClick: rollbackAll,
+        disabled: busy || appliedTotal === 0,
+        className: baseCss.buttonGhost,
+      }, '全部回滚'),
       acceptError !== null
         ? createElement('span', { className: css.acceptError }, acceptError)
         : null,
@@ -184,6 +201,28 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
             : null,
         )
         : null,
+      rollbackResult !== null
+        ? createElement('div', { className: css.resultSummary },
+          createElement('div', { className: css.resultHead },
+            createElement('span', { className: css.resultOk }, `已回滚 ${rollbackResult.rolledBack.length}`),
+            rollbackResult.missing.length > 0
+              ? createElement('span', { className: css.resultMuted }, `缺快照 ${rollbackResult.missing.length}`)
+              : null,
+            rollbackResult.failed.length > 0
+              ? createElement('span', { className: css.resultFail }, `失败 ${rollbackResult.failed.length}`)
+              : null,
+            createElement('button', { onClick: () => setRollbackResult(null), className: css.resultClose }, '×'),
+          ),
+          rollbackResult.failed.length > 0
+            ? createElement('ul', { className: css.resultFailList },
+              rollbackResult.failed.map(item => createElement('li', { key: item.id },
+                createElement('span', { className: css.resultFailId }, item.id),
+                createElement('span', null, item.message),
+              )),
+            )
+            : null,
+        )
+        : null,
     ),
     createElement('div', { className: css.body },
       createElement(ChangeTree, {
@@ -194,6 +233,7 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
         onSelect: setSelectedChange,
         onApprove: (id) => quickAction(id, 'approve'),
         onReject: (id) => quickAction(id, 'reject'),
+        onRollback: (id) => quickAction(id, 'rollback'),
         onRepend: (id) => quickAction(id, 'repend'),
         disabled: panelLocked,
       }),

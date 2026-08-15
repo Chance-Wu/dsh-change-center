@@ -21,6 +21,7 @@ describe('parsePath', () => {
     ['/api/change-center/sessions/s-1/accept-all', { kind: 'session-action', id: 's-1', action: 'accept-all' }],
     ['/api/change-center/sessions/s-1/reject-all', { kind: 'session-action', id: 's-1', action: 'reject-all' }],
     ['/api/change-center/sessions/s-1/accept-all-apply', { kind: 'session-action', id: 's-1', action: 'accept-all-apply' }],
+    ['/api/change-center/sessions/s-1/rollback-all', { kind: 'session-action', id: 's-1', action: 'rollback-all' }],
     ['/api/change-center/sessions/s-1/git', { kind: 'git', id: 's-1', action: 'status' }],
     ['/api/change-center/sessions/s-1/git/diff', { kind: 'git', id: 's-1', action: 'diff' }],
     ['/api/change-center/sessions/s-1/git/log', { kind: 'git', id: 's-1', action: 'log' }],

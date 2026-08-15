@@ -49,6 +49,19 @@ export interface ActionError {
   message: string
 }
 
+/**
+ * Result of {@link ChangeService.rollbackAll}. The counters are disjoint:
+ * `rolledBack + missing + failed` = every applied change in the session.
+ */
+export interface RollbackAllResult {
+  /** Changes successfully restored to their pre-apply state. */
+  rolledBack: string[]
+  /** Applied changes whose snapshot is gone (no restore possible). */
+  missing: string[]
+  /** Changes whose rollback failed, with a reason. */
+  failed: { id: string; message: string }[]
+}
+
 /** Whether a state action result is an error (vs the happy-path value). */
 export function isActionError<T>(result: T | ActionError): result is ActionError {
   return typeof result === 'object' && result !== null && (result as ActionError).kind === 'error'
@@ -305,6 +318,27 @@ export class ChangeService extends Service {
     if (result.kind === 'rolled-back') {
       this.transition(id, 'rolled_back')
       this.ctx.emit('change:rollback', change)
+    }
+    return result
+  }
+
+  /**
+   * Roll back every APPLIED change in a session (the counterpart to
+   * acceptAllAndApply). Failures and missing snapshots do not interrupt the
+   * rest; non-applied changes are out of scope.
+   */
+  async rollbackAll(sessionId: string): Promise<RollbackAllResult> {
+    const result: RollbackAllResult = { rolledBack: [], missing: [], failed: [] }
+    for (const change of this.listBySession(sessionId)) {
+      if (change.status !== 'applied') continue
+      const outcome = await this.rollback(change.id)
+      if (outcome.kind === 'rolled-back') {
+        result.rolledBack.push(change.id)
+      } else if (outcome.kind === 'missing-snapshot') {
+        result.missing.push(change.id)
+      } else {
+        result.failed.push({ id: change.id, message: outcome.message })
+      }
     }
     return result
   }

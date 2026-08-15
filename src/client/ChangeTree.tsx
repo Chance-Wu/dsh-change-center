@@ -27,6 +27,8 @@ export interface ChangeTreeProps {
   onApprove?: (id: string) => void
   /** Quick reject from a tree row (pending/approved/failed). */
   onReject?: (id: string) => void
+  /** Quick rollback from a tree row (applied). */
+  onRollback?: (id: string) => void
   /** Quick re-pend from a tree row (rejected/rolled_back). */
   onRepend?: (id: string) => void
   /** Panel lock (bulk op in flight / result showing): hide quick actions. */
@@ -201,13 +203,16 @@ function renderFileRow(
       counts.deletions > 0 ? createElement('span', { className: css.countDel }, `-${counts.deletions}`) : null,
     )
     : null,
-  showActions && (actions.canApprove || actions.canReject || actions.canRepend)
+  showActions && (actions.canApprove || actions.canReject || actions.canRollback || actions.canRepend)
     ? createElement('span', { className: css.rowActions, onClick: (event: MouseEvent) => event.stopPropagation() },
       actions.canApprove && props.onApprove !== undefined
         ? createElement('button', { className: css.actionApprove, onClick: () => props.onApprove?.(change.id) }, '接受')
         : null,
       actions.canReject && props.onReject !== undefined
         ? createElement('button', { className: css.actionReject, onClick: () => props.onReject?.(change.id) }, '拒绝')
+        : null,
+      actions.canRollback && props.onRollback !== undefined
+        ? createElement('button', { className: css.actionApprove, onClick: () => props.onRollback?.(change.id) }, '回滚')
         : null,
       actions.canRepend && props.onRepend !== undefined
         ? createElement('button', { className: css.actionApprove, onClick: () => props.onRepend?.(change.id) }, '重新处理')

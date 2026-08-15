@@ -74,7 +74,7 @@ type Parsed =
   | { kind: 'sessions' }
   | { kind: 'session'; id: string }
   | { kind: 'session-changes'; id: string }
-  | { kind: 'session-action'; id: string; action: 'accept-all' | 'reject-all' | 'accept-all-apply' }
+  | { kind: 'session-action'; id: string; action: 'accept-all' | 'reject-all' | 'accept-all-apply' | 'rollback-all' }
   | { kind: 'git'; id: string; action: 'status' | 'diff' | 'log' }
   | { kind: 'verification'; id: string; action: 'run' | 'list' }
   | { kind: 'review'; id: string; action: 'run' | 'get' }
@@ -109,7 +109,7 @@ const ROUTE_RULES: RouteRule[] = [
   { re: /^\/sessions\/?$/, build: () => ({ kind: 'sessions' }) },
   { re: /^\/sessions\/([^/]+)$/, build: m => ({ kind: 'session', id: m[1]! }) },
   { re: /^\/sessions\/([^/]+)\/changes$/, build: m => ({ kind: 'session-changes', id: m[1]! }) },
-  { re: /^\/sessions\/([^/]+)\/(accept-all|reject-all|accept-all-apply)$/, build: m => ({ kind: 'session-action', id: m[1]!, action: m[2] as 'accept-all' | 'reject-all' | 'accept-all-apply' }) },
+  { re: /^\/sessions\/([^/]+)\/(accept-all|reject-all|accept-all-apply|rollback-all)$/, build: m => ({ kind: 'session-action', id: m[1]!, action: m[2] as 'accept-all' | 'reject-all' | 'accept-all-apply' | 'rollback-all' }) },
   { re: /^\/sessions\/([^/]+)\/git\/?(diff|log|status)?$/, build: m => ({ kind: 'git', id: m[1]!, action: (m[2] ?? 'status') as 'status' | 'diff' | 'log' }) },
   { re: /^\/sessions\/([^/]+)\/verification\/?(run)?$/, build: m => ({ kind: 'verification', id: m[1]!, action: (m[2] ?? 'list') as 'run' | 'list' }) },
   { re: /^\/sessions\/([^/]+)\/review\/?(run)?$/, build: m => ({ kind: 'review', id: m[1]!, action: (m[2] ?? 'get') as 'run' | 'get' }) },
@@ -225,6 +225,9 @@ async function dispatch(
     case 'session-action': {
       if (parsed.action === 'accept-all-apply') {
         return { result: await ctx.changeCenter.acceptAllAndApply(parsed.id) }
+      }
+      if (parsed.action === 'rollback-all') {
+        return { result: await ctx.changeCenter.rollbackAll(parsed.id) }
       }
       const changes = parsed.action === 'accept-all'
         ? ctx.changeCenter.approveAll(parsed.id)

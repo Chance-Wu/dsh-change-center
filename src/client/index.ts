@@ -21,7 +21,7 @@ import type { FileChange } from '../models/FileChange.ts'
 import type { ChangeSession } from '../models/ChangeSession.ts'
 import type { ChangeEvent, ChangeRisk, ReviewFinding, ReviewResult, VerificationTask } from '../models/Phase3.ts'
 import type { ChangePolicy, FixRequest, FixResult } from '../models/Phase4.ts'
-import type { AcceptAllResult } from '../services/ChangeService.ts'
+import type { AcceptAllResult, RollbackAllResult } from '../services/ChangeService.ts'
 import type { Job } from '../services/JobService.ts'
 import { ChangeCenterSection } from './ChangeCenterSection.tsx'
 import { ChangesTab, type ChangesTabInjected } from './ChangesTab.tsx'
@@ -65,6 +65,9 @@ export type WireSession = ChangeSession
 
 /** Wire shape of an accept-all-and-apply result — the host type. */
 export type WireAcceptAllResult = AcceptAllResult
+
+/** Wire shape of a rollback-all result — the host type. */
+export type WireRollbackAllResult = RollbackAllResult
 
 /** Result of a change action (apply/rollback). */
 export interface ActionResult {
@@ -121,6 +124,7 @@ export interface ChangeCenterApi {
   editChange(id: string, after: string): Promise<unknown>
   sessionAction(sessionId: string, action: 'accept-all' | 'reject-all'): Promise<{ updated: string[] }>
   acceptAllAndApply(sessionId: string): Promise<WireAcceptAllResult>
+  rollbackAll(sessionId: string): Promise<WireRollbackAllResult>
   gitStatus(sessionId: string): Promise<GitResponse>
   gitDiff(sessionId: string): Promise<GitResponse>
   gitLog(sessionId: string): Promise<GitResponse>
@@ -165,6 +169,8 @@ export function apiOf(): ChangeCenterApi {
       postJson(`/api/change-center/sessions/${sessionId}/${action}`).then(body => body as { updated: string[] }),
     acceptAllAndApply: (sessionId) =>
       postJson(`/api/change-center/sessions/${sessionId}/accept-all-apply`).then(body => (body as { result: WireAcceptAllResult }).result),
+    rollbackAll: (sessionId) =>
+      postJson(`/api/change-center/sessions/${sessionId}/rollback-all`).then(body => (body as { result: WireRollbackAllResult }).result),
     gitStatus: (sessionId) => getJson(`/api/change-center/sessions/${sessionId}/git`).then(body => body as GitResponse),
     gitDiff: (sessionId) => getJson(`/api/change-center/sessions/${sessionId}/git/diff`).then(body => body as GitResponse),
     gitLog: (sessionId) => getJson(`/api/change-center/sessions/${sessionId}/git/log`).then(body => body as GitResponse),

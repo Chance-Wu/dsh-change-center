@@ -202,4 +202,26 @@ describe('Apply Engine e2e', () => {
     expect(readFileSync(b, 'utf8')).toBe('new b\n')
     expect(ctx.changeCenter.listBySession('accept-apply-1').every(c => c.status === 'applied')).toBe(true)
   })
+
+  it('rollback-all restores every applied change to its pre-apply content', async () => {
+    const ctx = await setup()
+    const agent = agentWithSession('rollback-all-1')
+    const a = join(tempDir, 'R1.java')
+    const b = join(tempDir, 'R2.java')
+    writeFileSync(a, 'old a\n')
+    writeFileSync(b, 'old b\n')
+
+    await executeWrite(ctx, { file_path: a, content: 'new a\n' }, agent)
+    await executeWrite(ctx, { file_path: b, content: 'new b\n' }, agent)
+    const applied = await ctx.changeCenter.acceptAllAndApply('rollback-all-1')
+    expect(applied.applied).toHaveLength(2)
+
+    const result = await ctx.changeCenter.rollbackAll('rollback-all-1')
+    expect(result.rolledBack).toHaveLength(2)
+    expect(result.missing).toHaveLength(0)
+    expect(result.failed).toHaveLength(0)
+    expect(readFileSync(a, 'utf8')).toBe('old a\n')
+    expect(readFileSync(b, 'utf8')).toBe('old b\n')
+    expect(ctx.changeCenter.listBySession('rollback-all-1').every(c => c.status === 'rolled_back')).toBe(true)
+  })
 })

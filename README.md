@@ -75,6 +75,7 @@ pnpm build       # tsc + tsdown(浏览器半边打包 lib/client.js)
 | `GET /sessions` · `GET /sessions/:id[/changes]` | 变更会话 |
 | `POST /sessions/:id/{accept-all,reject-all}` | 会话级批量接受/拒绝 |
 | `POST /sessions/:id/accept-all-apply` | **全部接收并应用**:批准全部待审变更并写回,返回 `{result:{approved,applied,skipped,superseded,failed}}`(计数互斥:applied+failed=处理数,skipped=非待审,superseded=被覆盖的旧写入) |
+| `POST /sessions/:id/rollback-all` | **全部回滚**:撤销本会话全部已应用变更,返回 `{result:{rolledBack,missing,failed}}`(缺快照即无法恢复) |
 | `GET /sessions/:id/git[/diff|log]` · `GET /sessions/:id/verification` · `POST .../verification/run` | Git 与验证 |
 | `GET|POST /sessions/:id/review[/run]` · `.../risk[/analyze]` | AI 审查与风险 |
 | `GET /sessions/:id/history[/timeline]` | 历史时间线 |
