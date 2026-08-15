@@ -13,7 +13,7 @@
 import { createElement, useEffect, useMemo, useState, type ReactElement } from 'react'
 import type { WireChange, WireFinding, WireReview } from './index.ts'
 import type { SideBySideRow } from '../services/DiffService.ts'
-import { countDiff } from '../services/DiffService.ts'
+import { countDiff, sideBySideRows } from '../services/DiffService.ts'
 import { statusMeta } from './statusMeta.ts'
 import css from './DiffViewer.module.css'
 import baseCss from './styles.module.css'
@@ -55,7 +55,7 @@ export interface DiffViewerProps {
  */
 export function DiffViewer(props: DiffViewerProps): ReactElement {
   const { change, mode, onModeChange, onSaved, disabled = false, readOnly = false } = props
-  const rows: SideBySideRow[] = useMemo(() => alignRows(change.before, change.after), [change.before, change.after])
+  const rows: SideBySideRow[] = useMemo(() => sideBySideRows(change.before, change.after), [change.before, change.after])
   const counts = useMemo(() => countDiff(change.before, change.after), [change.before, change.after])
   const meta = statusMeta(change.status)
 
@@ -467,59 +467,4 @@ function SideBySideView(props: { rows: SideBySideRow[] }): ReactElement {
     ),
     )),
   )
-}
-
-/** Re-derive aligned rows with the same LCS semantics as DiffService. */
-function alignRows(before: string | null, after: string | null): SideBySideRow[] {
-  const a = splitLines(before)
-  const b = splitLines(after)
-  const lcs = lcsIndices(a, b)
-  const out: SideBySideRow[] = []
-  let i = 0
-  let j = 0
-  for (const item of lcs) {
-    while (i < item.a) { out.push({ insertion: false, deletion: true, before: a[i], beforeNo: i + 1 }); i++ }
-    while (j < item.b) { out.push({ insertion: true, deletion: false, after: b[j], afterNo: j + 1 }); j++ }
-    out.push({ insertion: false, deletion: false, before: a[i], after: a[i], beforeNo: i + 1, afterNo: j + 1 })
-    i++
-    j++
-  }
-  while (i < a.length) { out.push({ insertion: false, deletion: true, before: a[i], beforeNo: i + 1 }); i++ }
-  while (j < b.length) { out.push({ insertion: true, deletion: false, after: b[j], afterNo: j + 1 }); j++ }
-  return out
-}
-
-function splitLines(text: string | null): string[] {
-  if (text === null) return []
-  const normalized = text.replace(/\r\n/g, '\n')
-  const lines = normalized.split('\n')
-  // A trailing newline is a line terminator, not an empty final line.
-  if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop()
-  return lines
-}
-
-function lcsIndices(a: string[], b: string[]): { a: number; b: number }[] {
-  const n = a.length
-  const m = b.length
-  const dp: number[][] = Array.from({ length: n + 1 }, () => new Array<number>(m + 1).fill(0))
-  for (let i = n - 1; i >= 0; i--) {
-    for (let j = m - 1; j >= 0; j--) {
-      dp[i]![j] = a[i] === b[j] ? dp[i + 1]![j + 1]! + 1 : Math.max(dp[i + 1]![j]!, dp[i]![j + 1]!)
-    }
-  }
-  const out: { a: number; b: number }[] = []
-  let i = 0
-  let j = 0
-  while (i < n && j < m) {
-    if (a[i] === b[j]) {
-      out.push({ a: i, b: j })
-      i++
-      j++
-    } else if (dp[i + 1]![j]! >= dp[i]![j + 1]!) {
-      i++
-    } else {
-      j++
-    }
-  }
-  return out
 }

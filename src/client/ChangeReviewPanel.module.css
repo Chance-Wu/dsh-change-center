@@ -478,7 +478,6 @@
   background: var(--dsw-alias-state-success-primary);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--dsw-alias-state-success-primary) 18%, transparent);
 }
-.capsuleDot[data-tone='rejected'],
 .capsuleDot[data-tone='error'] {
   background: var(--dsw-alias-state-error-primary);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--dsw-alias-state-error-primary) 18%, transparent);
@@ -502,7 +501,6 @@
 .capsuleLabel[data-tone='ok'] {
   color: var(--dsw-alias-state-success-primary);
 }
-.capsuleLabel[data-tone='rejected'],
 .capsuleLabel[data-tone='error'] {
   color: var(--dsw-alias-state-error-primary);
 }
