@@ -28,7 +28,9 @@ export const CHANGE_TRANSITIONS: Record<ChangeStatus, ChangeStatus[]> = {
   approved: ['applied', 'rejected', 'pending', 'failed'],
   rejected: ['pending'],
   applied: ['pending', 'rolled_back'],
-  failed: ['pending', 'applied', 'approved', 'rejected'],
+  // failed → failed 幂等:重试应用时引擎再次失败会走到同一分支,重复转移
+  // 不应抛「非法转移」,而是返回引擎结果(如仍冲突)。
+  failed: ['pending', 'applied', 'approved', 'rejected', 'failed'],
   rolled_back: ['pending'],
 }
 

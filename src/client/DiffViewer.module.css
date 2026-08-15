@@ -1,7 +1,7 @@
 /* DiffViewer：行块式 diff + 工具条，只引用设计 token。 */
 .viewer {
   border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 10px;
+  border-radius: 12px;
   background: var(--dsw-alias-bg-layer-2);
   padding: 10px 12px;
   min-width: 0;
@@ -72,15 +72,25 @@
   border-radius: 8px;
   white-space: nowrap;
 }
-.statusBadge[data-weight='high'] {
+/* 语义配色按状态:applied=绿、failed=红、approved/pending=蓝/黄、其余弱化 */
+.statusBadge[data-status='applied'] {
+  color: var(--dsw-alias-state-success-primary);
+  background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 12%, transparent);
+}
+.statusBadge[data-status='failed'] {
   color: var(--dsw-alias-state-error-primary);
   background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, transparent);
 }
-.statusBadge[data-weight='normal'] {
-  color: var(--dsw-alias-label-secondary);
-  background: var(--dsw-alias-bg-layer-3);
+.statusBadge[data-status='approved'] {
+  color: var(--dsw-alias-state-business-primary);
+  background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 12%, transparent);
 }
-.statusBadge[data-weight='low'] {
+.statusBadge[data-status='pending'] {
+  color: var(--dsw-alias-state-warn-primary);
+  background: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 12%, transparent);
+}
+.statusBadge[data-status='rejected'],
+.statusBadge[data-status='rolled_back'] {
   color: var(--dsw-alias-label-tertiary);
   background: var(--dsw-alias-bg-layer-3);
 }
@@ -116,6 +126,7 @@
 /* 统一 diff：行块式背景色（参考 TrajectoryTable promptDiff） */
 .diffBody {
   max-height: 380px;
+  animation: diffExpand 160ms cubic-bezier(0.4, 0, 0.2, 1);
   overflow: auto;
   font-family: var(--ds-font-family-code);
   font-size: var(--dsw-font-xxxs-11);
@@ -127,17 +138,12 @@
   padding: 6px 0;
 }
 
-.diffLine {
-  display: block;
-  padding: 0 8px;
-  min-width: max-content;
-}
 .diffLineContext {
   color: var(--dsw-alias-label-secondary);
 }
 .diffLineAdded {
   color: color-mix(in srgb, var(--dsw-alias-state-success-primary) 72%, var(--dsw-alias-label-primary));
-  background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 14%, var(--dsw-alias-bg-layer-1));
+  background: var(--dsw-alias-state-success-tertiary);
 }
 .diffLineRemoved {
   color: var(--dsw-alias-state-error-primary);
@@ -180,7 +186,7 @@
   background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, var(--dsw-alias-bg-layer-1));
 }
 .sideRowInsertion {
-  background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 14%, var(--dsw-alias-bg-layer-1));
+  background: var(--dsw-alias-state-success-tertiary);
 }
 .sideCol {
   flex: 1;
@@ -231,9 +237,88 @@
   font-size: var(--dsw-font-xxs-12);
 }
 
-/* 脏状态（V-7）：编辑器修改后显示 ✎ 已修改 */
-.dirtyHint {
-  color: var(--dsw-alias-state-warn-primary);
+
+/* 4.x AI 变更摘要 + Diff 折叠 */
+.aiSummary {
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-2);
+  padding: 10px 12px;
+  margin-bottom: 8px;
+}
+.aiSummaryHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.aiSummaryTitle {
   font-size: var(--dsw-font-xxs-12);
+  font-weight: 700;
+  color: var(--dsw-alias-label-primary);
+}
+.aiSummaryRisk {
+  font-size: var(--dsw-font-xxxs-11);
+  color: var(--dsw-alias-label-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.aiSummaryText {
+  font-size: var(--dsw-font-xxs-12);
+  color: var(--dsw-alias-label-secondary);
+  line-height: 1.6;
+}
+.aiFindings {
+  margin: 6px 0 0;
+  padding-left: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.aiFinding {
+  font-size: var(--dsw-font-xxxs-11);
+  color: var(--dsw-alias-label-secondary);
+  display: flex;
+  gap: 6px;
+}
+.aiFindingError {
+  color: var(--dsw-alias-state-error-primary);
   font-weight: 600;
+}
+.aiFindingWarn {
+  color: var(--dsw-alias-state-warn-primary);
+  font-weight: 600;
+}
+.aiSummaryOk {
+  margin-top: 4px;
+  font-size: var(--dsw-font-xxs-12);
+  color: var(--dsw-alias-state-success-primary);
+}
+
+.diffToggle {
+  width: 100%;
+  border: 1px dashed var(--dsw-alias-border-l2);
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font-size: var(--dsw-font-xxs-12);
+  font-family: inherit;
+  padding: 6px;
+  border-radius: 8px;
+  cursor: pointer;
+  margin-bottom: 8px;
+  transition: background 120ms ease, color 120ms ease;
+}
+.diffToggle:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+@keyframes diffExpand {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .diffBody {
+    animation: none;
+  }
 }

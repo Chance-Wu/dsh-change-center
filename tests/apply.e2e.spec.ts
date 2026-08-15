@@ -127,6 +127,26 @@ describe('Apply Engine e2e', () => {
     expect(ctx.changeCenter.get(change.id)?.status).toBe('failed')
   })
 
+  it('retrying apply after a conflict returns conflict, not a transition error', async () => {
+    const ctx = await setup()
+    const agent = agentWithSession('retry-conflict-1')
+    const target = join(tempDir, 'RetryConflict.java')
+    writeFileSync(target, 'after\n')
+
+    await executeWrite(ctx, { file_path: target, content: 'after\n' }, agent)
+    const change = ctx.changeCenter.list()[0]!
+    // 外部修改后首次应用 → conflict → failed。
+    writeFileSync(target, 'externally edited\n')
+    const first = await ctx.changeCenter.apply(change.id)
+    expect(first.kind).toBe('conflict')
+    expect(ctx.changeCenter.get(change.id)?.status).toBe('failed')
+
+    // 重试:引擎仍冲突,但不应因 failed→failed 转移抛「非法转移」。
+    const retry = await ctx.changeCenter.apply(change.id)
+    expect(retry.kind).toBe('conflict')
+    expect(ctx.changeCenter.get(change.id)?.status).toBe('failed')
+  })
+
   it('force-apply bypasses the external-mutation guard', async () => {
     const ctx = await setup()
     const agent = agentWithSession('force-1')

@@ -59,7 +59,7 @@
   align-items: center;
   gap: 8px;
   border: 1px solid var(--dsw-alias-state-warn-primary);
-  border-radius: 10px;
+  border-radius: 12px;
   background: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 10%, var(--dsw-alias-bg-layer-2));
   padding: 8px 12px;
   margin-bottom: 10px;
@@ -69,26 +69,6 @@
   font-weight: 600;
   color: var(--dsw-alias-state-warn-primary);
   font-size: var(--dsw-font-xxs-12);
-}
-
-.unsavedDiscard {
-  border: none;
-  border-radius: 8px;
-  padding: 4px 12px;
-  font-size: var(--dsw-font-xxs-12);
-  cursor: pointer;
-  background: var(--dsw-alias-state-error-primary);
-  color: var(--dsw-alias-label-primary-inverted);
-}
-
-.unsavedCancel {
-  border: 1px solid var(--dsw-alias-border-l2);
-  background: transparent;
-  color: var(--dsw-alias-label-secondary);
-  border-radius: 8px;
-  padding: 4px 12px;
-  font-size: var(--dsw-font-xxs-12);
-  cursor: pointer;
 }
 
 .layout {
@@ -171,26 +151,6 @@
   margin-top: 4px;
 }
 
-.currentOpen {
-  border: none;
-  border-radius: 8px;
-  padding: 4px 12px;
-  font-size: var(--dsw-font-xxs-12);
-  cursor: pointer;
-  background: var(--dsw-alias-state-business-primary);
-  color: var(--dsw-alias-label-primary-inverted);
-}
-
-.currentBack {
-  border: 1px solid var(--dsw-alias-border-l2);
-  background: transparent;
-  color: var(--dsw-alias-label-secondary);
-  border-radius: 8px;
-  padding: 4px 12px;
-  font-size: var(--dsw-font-xxs-12);
-  cursor: pointer;
-}
-
 /* ── 会话视图：按天分组的时间线（V-10） ─────────────────────────── */
 .timeline {
   display: flex;
@@ -218,7 +178,7 @@
   gap: 8px;
   padding: 8px 10px;
   border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 10px;
+  border-radius: 12px;
   background: var(--dsw-alias-bg-layer-2);
   cursor: pointer;
   text-align: left;

@@ -15,6 +15,7 @@
 import { createElement, useEffect, useState, type ReactElement } from 'react'
 import type { ChangeCenterApi, WireSession } from './index.ts'
 import { ChangeReviewPanel } from './ChangeReviewPanel.tsx'
+import baseCss from './styles.module.css'
 import css from './ChangeCenterSection.module.css'
 
 /** Props for the section: settings-shell owner share plus the API handle. */
@@ -144,11 +145,11 @@ export function ChangeCenterSection(props: ChangeCenterSectionProps): ReactEleme
         createElement('span', { className: css.unsavedText }, '未保存的修改'),
         createElement('button', {
           onClick: () => { selectSession(pendingSession); setPendingSession(null) },
-          className: css.unsavedDiscard,
+          className: baseCss.buttonDanger,
         }, '放弃并切换'),
         createElement('button', {
           onClick: () => setPendingSession(null),
-          className: css.unsavedCancel,
+          className: baseCss.buttonGhost,
         }, '取消'),
       )
       : null,
@@ -241,12 +242,12 @@ function CurrentCard(props: {
   createElement('div', { className: css.currentActions },
     createElement('button', {
       onClick: (event: MouseEvent) => { event.stopPropagation(); onOpen(session.id) },
-      className: css.currentOpen,
+      className: baseCss.buttonPrimary,
     }, '查看变更'),
     showBackToCurrent
       ? createElement('button', {
         onClick: (event: MouseEvent) => { event.stopPropagation(); onBackToCurrent() },
-        className: css.currentBack,
+        className: baseCss.buttonGhost,
       }, '回到当前')
       : null,
   ),

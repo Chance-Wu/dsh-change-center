@@ -12,6 +12,7 @@
 import { createElement, useEffect, useState, type ReactElement } from 'react'
 import type { ChangeCenterApi, WireSession } from './index.ts'
 import { ChangeReviewPanel } from './ChangeReviewPanel.tsx'
+import baseCss from './styles.module.css'
 import css from './ChangesTab.module.css'
 
 /** Injected props: the agent session id for the conversation this tab shows. */
@@ -57,13 +58,13 @@ export function ChangesTab(props: ChangesTabProps): ReactElement {
   if (session === null) {
     return createElement('div', { className: css.tab },
       createElement('div', { className: css.empty },
-        createElement('div', { className: css.emptyText },
-          '本会话暂无捕获的变更。',
-          createElement('br'),
-          createElement('br'),
-          '① 让 agent 修改文件 → ② 变更自动出现在这里 → ③ 逐条审查(接受/拒绝)或「全部接收并应用」。',
-          createElement('br'),
-          '全部会话可在 设置 → 变更中心 查看。'),
+        createElement('div', { className: baseCss.emptyState },
+          createElement('div', { className: baseCss.emptyTitle }, '本会话暂无捕获的变更'),
+          createElement('div', { className: baseCss.emptyDesc },
+            '① 让 agent 修改文件 → ② 变更自动出现在这里 → ③ 逐条审查(接受/拒绝)或「全部接收并应用」。',
+            createElement('br'),
+            '全部会话可在 设置 → 变更中心 查看。'),
+        ),
       ),
     )
   }

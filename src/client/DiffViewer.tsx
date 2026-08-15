@@ -11,7 +11,7 @@
  */
 
 import { createElement, useEffect, useMemo, useState, type ReactElement } from 'react'
-import type { WireChange } from './index.ts'
+import type { WireChange, WireReview } from './index.ts'
 import type { SideBySideRow } from '../services/DiffService.ts'
 import { countDiff } from '../services/DiffService.ts'
 import { statusMeta } from './statusMeta.ts'
@@ -34,6 +34,8 @@ export interface DiffViewerProps {
   onDraftChange?: (draft: string) => void
   /** Reports whether the draft differs from the applied/committed after text. */
   onDirtyChange?: (dirty: boolean) => void
+  /** 4.x AI 审查结果:存在时默认显示 AI 摘要,代码 diff 折叠展开。 */
+  review?: WireReview | null
 }
 
 /**
@@ -59,6 +61,9 @@ export function DiffViewer(props: DiffViewerProps): ReactElement {
     setLocalDraft(next)
   }
   const dirty = draft !== (change.after ?? '')
+
+  // 4.x:有 AI 审查时代码 diff 默认折叠,先看摘要再展开。
+  const [diffOpen, setDiffOpen] = useState(props.review === undefined || props.review === null)
 
   // 保存反馈:乐观提示「✓ 已保存」1.5 秒(失败由面板错误区呈现)。
   const [justSaved, setJustSaved] = useState(false)
@@ -95,10 +100,12 @@ export function DiffViewer(props: DiffViewerProps): ReactElement {
           counts.deletions > 0 ? createElement('span', { className: css.countDel }, `-${counts.deletions}`) : null,
         ),
         // 3.0.8:状态徽标(actionsFor/状态模型驱动,UI 不自判)。
+        // 语义配色按状态本身:applied=绿、failed=红,不再用 weight 二值映射
+        // (weight 只表达强调度,无法区分「已应用」与「失败」)。
         createElement('span', {
           className: css.statusBadge,
           title: meta.label,
-          'data-weight': meta.weight,
+          'data-status': change.status,
         }, `${meta.icon} ${meta.label}`),
       ),
       createElement('div', { className: css.modeTabs },
@@ -108,9 +115,20 @@ export function DiffViewer(props: DiffViewerProps): ReactElement {
       ),
     ),
     createElement('div', { className: css.content },
-      mode === 'unified' && createElement(UnifiedView, { change }),
-      mode === 'side-by-side' && createElement(SideBySideView, { rows }),
-      mode === 'editor' && createElement('div', { className: css.editorArea },
+      props.review !== undefined && props.review !== null
+        ? createElement(AISummaryBlock, { review: props.review, change })
+        : null,
+      props.review !== undefined && props.review !== null
+        ? createElement('button', {
+          className: css.diffToggle,
+          onClick: () => setDiffOpen(!diffOpen),
+          'aria-expanded': diffOpen,
+        }, `${diffOpen ? '▾' : '▸'} 展开代码 Diff`)
+        : null,
+      (diffOpen || props.review === undefined || props.review === null) && (
+        mode === 'unified' ? createElement(UnifiedView, { change })
+          : mode === 'side-by-side' ? createElement(SideBySideView, { rows })
+            : createElement('div', { className: css.editorArea },
         createElement('textarea', {
           value: draft,
           onChange: (event: { target: { value: string } }) => setDraft(event.target.value),
@@ -127,9 +145,43 @@ export function DiffViewer(props: DiffViewerProps): ReactElement {
             : null,
           createElement('button', { onClick: save, disabled: disabled || !dirty, className: baseCss.buttonPrimary }, '保存修改'),
         ),
+      )
       ),
     ),
   )
+}
+
+/** 4.x AI 变更摘要:先回答「AI 改了什么、是否安全」,再展开代码 Diff。 */
+function AISummaryBlock(props: { review: WireReview; change: WireChange }): ReactElement {
+  const { review, change } = props
+  const findings = review.findings.filter(f => {
+    if (f.filePath.length === 0) return false
+    return change.path === f.filePath || change.path.endsWith(`/${f.filePath}`)
+  })
+  return createElement('div', { className: css.aiSummary },
+    createElement('div', { className: css.aiSummaryHead },
+      createElement('span', { className: css.aiSummaryTitle }, 'AI 变更摘要'),
+      createElement('span', { className: css.aiSummaryRisk },
+        `风险 ${RISK_ZH[review.risk] ?? review.risk} · 评分 ${review.score}`),
+    ),
+    review.summary.length > 0
+      ? createElement('div', { className: css.aiSummaryText }, review.summary)
+      : null,
+    findings.length > 0
+      ? createElement('ul', { className: css.aiFindings },
+        findings.slice(0, 3).map(finding => createElement('li', { key: finding.id, className: css.aiFinding },
+          createElement('span', { className: finding.severity === 'error' || finding.severity === 'critical' ? css.aiFindingError : css.aiFindingWarn },
+            SEVERITY_ZH[finding.severity] ?? finding.severity),
+          createElement('span', null, finding.title),
+        )),
+      )
+      : createElement('div', { className: css.aiSummaryOk }, '✓ 本文件未发现审查问题'),
+  )
+}
+
+const RISK_ZH: Record<string, string> = { low: '低', medium: '中', high: '高', critical: '严重' }
+const SEVERITY_ZH: Record<string, string> = {
+  critical: '严重', error: '错误', warning: '警告', info: '提示',
 }
 
 function modeTab(label: string, active: boolean, onClick: () => void): ReactElement {

@@ -96,6 +96,53 @@ describe('SessionService turn lifecycle', () => {
     expect(changeSession.statistics).toEqual({ files: 2, additions: 3, deletions: 0 })
   })
 
+  it('uses the agent session title for the change-session name (标题优先)', async () => {
+    const { ctx, session } = await setup()
+    session.append('turn/start', { turn: 1 })
+    session.append('session/title', { title: '优化任务胶囊标题' })
+    ctx.changeCenter.record({
+      sessionId: 'agent-1',
+      cwd: tempDir,
+      path: 'src/a.txt',
+      operation: 'modify',
+      before: 'a\n',
+      after: 'b\n',
+      source: 'agent',
+      toolName: 'edit',
+    })
+    const cs = ctx.changeSessions.list()[0]!
+    // 标题存在时 name 就是标题,变更摘要不再覆盖。
+    expect(cs.title).toBe('优化任务胶囊标题')
+    expect(cs.name).toBe('优化任务胶囊标题')
+  })
+
+  it('names the session with turn prefix + change summary (管理友好)', async () => {
+    const { ctx, session } = await setup()
+    session.append('turn/start', { turn: 1 })
+    ctx.changeCenter.record({
+      sessionId: 'agent-1',
+      cwd: tempDir,
+      path: 'src/auth/token.ts',
+      operation: 'create',
+      before: null,
+      after: 'x\n',
+      source: 'agent',
+      toolName: 'write',
+    })
+    ctx.changeCenter.record({
+      sessionId: 'agent-1',
+      cwd: tempDir,
+      path: 'src/auth/role.ts',
+      operation: 'modify',
+      before: 'a\n',
+      after: 'b\n',
+      source: 'agent',
+      toolName: 'edit',
+    })
+    const changeSession = ctx.changeSessions.list()[0]!
+    expect(changeSession.name).toBe('第 1 轮 · 修改 src/auth 下 2 个文件')
+  })
+
   it('derives a natural-language summary from paths and operations (S-8)', async () => {
     const { ctx, session } = await setup()
     session.append('turn/start', { turn: 1 })

@@ -1,0 +1,61 @@
+/* TimelineView：会话时间轴（4.1）—— 时间 + 图标 + 事件描述。 */
+.timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--dsw-font-xxs-12);
+  color: var(--dsw-alias-label-secondary);
+  padding: 3px 4px;
+  border-radius: 6px;
+  min-width: 0;
+}
+
+.time {
+  flex: none;
+  font-size: var(--dsw-font-xxxs-11);
+  font-variant-numeric: tabular-nums;
+  color: var(--dsw-alias-label-tertiary);
+  width: 34px;
+  text-align: right;
+}
+
+.icon {
+  flex: none;
+  width: 16px;
+  text-align: center;
+  font-weight: 700;
+}
+
+.label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.row[data-tone='ok'] .icon {
+  color: var(--dsw-alias-state-success-primary);
+}
+
+.row[data-tone='warn'] .icon {
+  color: var(--dsw-alias-state-warn-primary);
+}
+
+.row[data-tone='error'] .icon {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.empty {
+  font-size: var(--dsw-font-xxs-12);
+  color: var(--dsw-alias-label-tertiary);
+  padding: 4px 0;
+}

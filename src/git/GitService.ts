@@ -1,10 +1,11 @@
 /**
- * Git integration: repository facts, working-tree status, diff, and log
- * through the Harness shell seam (`ctx.shell.run`).
+ * Git integration: repository facts, working-tree status, diff, log, and
+ * manual staging/commit/push through the Harness shell seam (`ctx.shell.run`).
  *
  * Harness ships no git package, so every operation shells out to the `git`
- * CLI in the session workspace. The service is deliberately read-only in P0:
- * no commit, no push, no history rewriting.
+ * CLI in the session workspace. Read operations are safe; write operations
+ * (add/commit/push) are ONLY invoked by explicit user action in the Focus
+ * Git panel — the service never stages, commits, or pushes automatically.
  * @module dsh-change-center/git
  */
 
@@ -23,9 +24,14 @@ declare module '@deepseek-ai/cordis' {
 /** Git facts for one workspace; error carries a non-git marker. */
 export type GitWorkspaceResult = GitInfo & { entries?: GitStatusEntry[] } | { error: string }
 
+/** Outcome of a write git operation (add/commit/push). */
+export type GitWriteResult =
+  | { ok: true; hash?: string; added?: number }
+  | { ok: false; error: string }
+
 const GIT_TIMEOUT_MS = 15_000
 
-/** Executes read-only git commands in a session's workspace. */
+/** Executes git commands in a session's workspace. */
 export class GitService extends Service {
   static inject = ['shell']
 
@@ -60,10 +66,10 @@ export class GitService extends Service {
       const trimmed = line.trim()
       if (trimmed.length === 0) continue
       // Porcelain format: "XY path" where X is the index status and Y the
-      // worktree status; trimmed of the leading space, the code is one char
-      // plus a separating space, and the path follows at index 2.
+      // worktree status. Staged entries render as "A  b.txt" (two spaces),
+      // so the path needs a leading-space trim on top of slice(2).
       const code = trimmed[0] ?? '?'
-      const path = trimmed.slice(2)
+      const path = trimmed.slice(2).replace(/^\s+/, '')
       if (path.length > 0) entries.push({ code, path })
     }
     return entries
@@ -83,6 +89,37 @@ export class GitService extends Service {
     return { entries: (result.stdout ?? '').split('\n').filter(line => line.trim().length > 0) }
   }
 
+  /** Stage paths (defaults to the whole working tree). */
+  async add(workspace: string, paths?: string[]): Promise<GitWriteResult> {
+    const target = paths !== undefined && paths.length > 0 ? paths.map(quotePath).join(' ') : '.'
+    const result = await this.git(workspace, `git add -- ${target}`)
+    if (result.error !== undefined) return { ok: false, error: result.error }
+    return { ok: true, added: paths?.length ?? 0 }
+  }
+
+  /**
+   * Commit the staged changes with a message. The message travels through a
+   * shell command line, so embedded quotes are escaped for a single-quoted
+   * argument (`'` → `''`).
+   */
+  async commit(workspace: string, message: string): Promise<GitWriteResult> {
+    const trimmed = message.trim()
+    if (trimmed.length === 0) return { ok: false, error: 'commit message is empty' }
+    const safe = trimmed.replace(/'/g, "''")
+    const result = await this.git(workspace, `git commit -m '${safe}'`)
+    if (result.error !== undefined) return { ok: false, error: result.error }
+    const hash = /^\[[^\]]+ ([0-9a-f]+)\]/.exec((result.stdout ?? '').trim())?.[1]
+    return { ok: true, hash }
+  }
+
+  /** Push the current branch (or an explicit branch) to a remote. */
+  async push(workspace: string, remote = 'origin', branch?: string): Promise<GitWriteResult> {
+    const ref = branch !== undefined && branch.length > 0 ? ` ${branch}` : ''
+    const result = await this.git(workspace, `git push ${remote}${ref}`)
+    if (result.error !== undefined) return { ok: false, error: result.error }
+    return { ok: true }
+  }
+
   /** Run one git command in the workspace; never throws on non-zero exit. */
   private async git(workspace: string, command: string): Promise<{ stdout?: string; error?: string }> {
     const shell = this.ctx.get('shell')
@@ -92,8 +129,9 @@ export class GitService extends Service {
       const result = await shell.run(spec)
       if (result.exitCode !== 0) {
         const stderr = result.stderr.text ?? ''
-        // git prints "not a git repository" — surface it distinctly.
-        if (/not a git repository/i.test(stderr) || /fatal:/i.test(stderr)) {
+        // git prints "not a git repository" — surface it distinctly; other
+        // fatal errors (no remote, auth, conflicts) keep their real text.
+        if (/not a git repository/i.test(stderr)) {
           return { error: 'not a git repository' }
         }
         return { error: stderr.trim() || `git exited ${result.exitCode}` }
@@ -103,4 +141,9 @@ export class GitService extends Service {
       return { error: error instanceof Error ? error.message : String(error) }
     }
   }
+}
+
+/** Quote a path for a shell argument list (single quotes; `'` → `''`). */
+function quotePath(path: string): string {
+  return `'${path.replace(/'/g, "''")}'`
 }

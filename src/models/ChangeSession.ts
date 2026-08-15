@@ -42,6 +42,8 @@ export interface ChangeSession {
   }
   /** Vibe UI 2.3 S-8:自然语言摘要(如「修改 src/auth 下 3 个文件」),随会话落库。 */
   summary?: string
+  /** 4.x:agent 会话标题(来自 session/title 事件);存在时 name 显示标题而非轮次。 */
+  title?: string
   createdAt: number
   updatedAt: number
 }

@@ -2,8 +2,11 @@
  * Change tree: the review surface's file list with two display modes —
  * 「按扩展名」(default, groups merged as `*.ext`) and 「目录树」(nested
  * directories, collapsible). Paths are shown relative to the change's
- * workspace; rows carry A/M/D markers, ±line counts, and hover quick actions
- * (接受/拒绝) for pending changes.
+ * workspace; rows carry A/M/D markers, ±line counts, and hover quick actions.
+ *
+ * 4.x Large Repository Mode: the directory tree renders as a FLATTENED,
+ * windowed list (fixed row height + scroll window), so thousands of changes
+ * stay smooth; search / operation / path-prefix filters narrow the surface.
  *
  * The tree receives ALREADY-filtered file changes (see
  * {@link ChangeReviewPanel.isReviewableChange}) — command executions are not
@@ -11,7 +14,7 @@
  * @module dsh-change-center/client
  */
 
-import { createElement, useMemo, useState, type ReactElement } from 'react'
+import { createElement, useMemo, useRef, useState, type ReactElement, type UIEvent } from 'react'
 import type { WireChange } from './index.ts'
 import { actionsFor, type ChangeActions } from './changeActions.ts'
 import { statusMeta } from './statusMeta.ts'
@@ -41,10 +44,28 @@ export interface ChangeTreeProps {
   /** 3.x:展开「···」的行(显示其余操作)。 */
   expandedRows?: ReadonlySet<string>
   onToggleMore?: (id: string) => void
+  /** 数据加载中:显示骨架而非「暂无文件变更」。 */
+  loading?: boolean
 }
 
 /** Display mode: extension groups (`*.ext`) or the directory tree. */
 type TreeMode = 'ext' | 'dir'
+
+/** 4.x:窗口化渲染的行高(与 CSS 保持一致)。 */
+const ROW_HEIGHT = 30
+/** 视口外预渲染行数。 */
+const OVERSCAN = 8
+
+/** 4.x 每文件风险等级:UI 层轻量启发,与 RiskService 规则同源(展示用)。 */
+type FileRisk = 'low' | 'medium' | 'high'
+
+function fileRisk(change: WireChange): FileRisk {
+  if (change.operation === 'delete') return 'high'
+  const p = change.path
+  if (/securityconfig|permission|authorization|role|\.sql$/i.test(p)) return 'high'
+  if (/pom\.xml$|package\.json$|build\.gradle(\.kts)?$|application\.ya?ml$|application\.properties$/i.test(p)) return 'medium'
+  return 'low'
+}
 
 /** Mark → CSS class (create/modify/delete). */
 function markClass(operation: string): string {
@@ -204,6 +225,27 @@ function remainingActions(actions: ChangeActions): ('approve' | 'reject')[] {
   return out
 }
 
+/** 风险 chip 渲染:低=不显示,中/高显示等级。 */
+function riskChipFor(change: WireChange): ReactElement | null {
+  const risk = fileRisk(change)
+  if (risk === 'low') return null
+  return createElement('span', {
+    className: risk === 'high' ? css.riskHigh : css.riskMedium,
+    title: risk === 'high' ? '高风险:删除或敏感路径' : '中风险:配置/依赖文件',
+  }, risk === 'high' ? '高风险' : '中风险')
+}
+
+/** 快捷操作语义配色:接受=绿、应用/重试=蓝、拒绝=红、回滚/重处理=中性。 */
+function actionClass(kind: string): string {
+  switch (kind) {
+    case 'reject': return css.actionReject
+    case 'approve': return css.actionAccept
+    case 'apply':
+    case 'retry-apply': return css.actionApply
+    default: return css.actionGhost
+  }
+}
+
 /** One file row: mark + relative path + counts + hover quick actions. */
 function renderFileRow(
   change: WireChange,
@@ -235,7 +277,7 @@ function renderFileRow(
   const stop = (handler: () => void) => (event: MouseEvent) => { event.stopPropagation(); handler() }
   const primaryButton = primary !== null
     ? createElement('button', {
-      className: primary === 'reject' ? css.actionReject : css.actionApprove,
+      className: actionClass(primary),
       onClick: stop(() => {
         if (primary === 'apply' || primary === 'retry-apply') props.onApply?.(change.id)
         else if (primary === 'rollback') props.onRollback?.(change.id)
@@ -251,12 +293,12 @@ function renderFileRow(
       className: css.actionMore,
       onClick: stop(() => props.onToggleMore?.(change.id)),
       title: moreExpanded ? '收起其他操作' : '其他操作',
-    }, moreExpanded ? '···' : '···')
+    }, '···')
     : null
   const extraButtons = moreExpanded
     ? remaining.map(kind => createElement('button', {
       key: kind,
-      className: kind === 'reject' ? css.actionReject : css.actionApprove,
+      className: actionClass(kind),
       onClick: stop(() => {
         if (kind === 'approve') props.onApprove?.(change.id)
         else props.onReject?.(change.id)
@@ -269,7 +311,7 @@ function renderFileRow(
     className: css.fileRow,
     'data-selected': props.selected === change.id,
     onClick: () => props.onSelect(change.id),
-    style: { paddingLeft: 6 + depth * 14 + 14 },
+    style: { paddingLeft: 6 + depth * 14 + 14, height: ROW_HEIGHT },
   },
   createElement('span', { className: markClass(change.operation) }, mark),
   createElement('span', { className: css.fileName }, relativePath(change)),
@@ -279,8 +321,9 @@ function renderFileRow(
       counts.deletions > 0 ? createElement('span', { className: css.countDel }, `-${counts.deletions}`) : null,
     )
     : null,
+  riskChipFor(change),
   denied
-    ? createElement('span', { className: css.statusDenied, title: '被策略拒绝' }, '⛔')
+    ? createElement('span', { className: css.statusDenied, title: '被策略拒绝' }, '⊘')
     : statusGlyph,
   showActions && primary !== null
     ? createElement('span', { className: css.rowActions, onClick: (event: MouseEvent) => event.stopPropagation() },
@@ -292,51 +335,72 @@ function renderFileRow(
   )
 }
 
-/** Render one directory node recursively (sorted: dirs first, then files). */
-function renderNode(
+/** 4.x:扁平化的一行(目录或文件),供窗口化渲染。 */
+interface FlatRow {
+  key: string
+  type: 'dir' | 'file'
+  depth: number
+  path: string
+  name: string
+  collapsed: boolean
+  change?: WireChange
+  dir?: { files: number; additions: number; deletions: number }
+}
+
+/** 递归展平目录树(折叠状态 + forceExpand)。 */
+function flattenTree(
   node: TreeNode,
   depth: number,
-  props: ChangeTreeProps,
   collapsed: ReadonlySet<string>,
-  onToggle: (path: string) => void,
-): ReactElement[] {
+  forceExpand: boolean,
+  out: FlatRow[],
+): void {
   const dirs = [...node.children.values()].filter(child => child.change === null)
     .sort((a, b) => a.name.localeCompare(b.name))
   const files = [...node.children.values()].filter(child => child.change !== null)
     .sort((a, b) => a.name.localeCompare(b.name))
-  const out: ReactElement[] = []
   for (const dir of dirs) {
     const isCollapsed = collapsed.has(dir.path)
-    out.push(createElement('button', {
+    out.push({
       key: `dir-${dir.path}`,
-      className: css.dirRow,
-      style: { paddingLeft: 6 + depth * 14 },
-      onClick: () => onToggle(dir.path),
-      title: isCollapsed ? '展开目录' : '折叠目录',
-    },
-    createElement(Chevron, { collapsed: isCollapsed }),
-    createElement('span', { className: css.dirName }, dir.name),
-    createElement('span', { className: css.dirStats },
-      `${dir.files} · +${dir.additions} -${dir.deletions}`),
-    ))
-    if (!isCollapsed) {
-      out.push(...renderNode(dir, depth + 1, props, collapsed, onToggle))
+      type: 'dir',
+      depth,
+      path: dir.path,
+      name: dir.name,
+      collapsed: isCollapsed,
+      dir: { files: dir.files, additions: dir.additions, deletions: dir.deletions },
+    })
+    if (!isCollapsed || forceExpand) {
+      flattenTree(dir, depth + 1, collapsed, forceExpand, out)
     }
   }
   for (const file of files) {
-    out.push(renderFileRow(file.change as WireChange, props, depth))
+    out.push({
+      key: file.change!.id,
+      type: 'file',
+      depth,
+      path: file.path,
+      name: file.name,
+      collapsed: false,
+      change: file.change!,
+    })
   }
-  return out
 }
 
 /** The file list for a session's changes (directory tree by default). */
 export function ChangeTree(props: ChangeTreeProps): ReactElement {
   const [mode, setMode] = useState<TreeMode>('dir')
-  const groups = useMemo(() => groupByExtension(props.changes), [props.changes])
-  const root = useMemo(() => buildTree(props.changes), [props.changes])
+  // 4.x 过滤:搜索 / 操作 / 路径前缀。
+  const [query, setQuery] = useState('')
+  const [opFilter, setOpFilter] = useState<ReadonlySet<string>>(new Set())
+  const [pathPrefix, setPathPrefix] = useState('')
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set())
   // 3.x:展开「···」的行(显示其余操作)。
   const [expandedRows, setExpandedRows] = useState<Set<string>>(() => new Set())
+  // 4.x:窗口化渲染的滚动位置。
+  const [scrollTop, setScrollTop] = useState(0)
+  const treeRef = useRef<HTMLDivElement | null>(null)
+
   const rowProps: ChangeTreeProps = {
     ...props,
     expandedRows,
@@ -349,6 +413,25 @@ export function ChangeTree(props: ChangeTreeProps): ReactElement {
       })
     },
   }
+
+  const filterActive = query !== '' || opFilter.size > 0 || pathPrefix !== ''
+  const filtered = useMemo(() => {
+    if (!filterActive) return props.changes
+    const q = query.toLowerCase()
+    return props.changes.filter(change => {
+      const rel = relativePath(change)
+      if (pathPrefix.length > 0 && !rel.startsWith(pathPrefix)) return false
+      if (opFilter.size > 0 && !opFilter.has(change.operation)) return false
+      if (q.length > 0) {
+        const name = rel.split('/').pop() ?? rel
+        if (!rel.toLowerCase().includes(q) && !name.toLowerCase().includes(q)) return false
+      }
+      return true
+    })
+  }, [props.changes, query, opFilter, pathPrefix, filterActive])
+
+  const groups = useMemo(() => groupByExtension(filtered), [filtered])
+  const root = useMemo(() => buildTree(filtered), [filtered])
 
   const toggle = (path: string): void => {
     setCollapsed(prev => {
@@ -363,10 +446,34 @@ export function ChangeTree(props: ChangeTreeProps): ReactElement {
     setCollapsed(collapse ? new Set(allDirPaths(root)) : new Set())
   }
 
-  return createElement('div', { className: css.tree },
+  // 4.x:扁平化目录树 + 窗口切片。
+  const flatRows = useMemo(() => {
+    const out: FlatRow[] = []
+    flattenTree(root, 0, collapsed, filterActive, out)
+    return out
+  }, [root, collapsed, filterActive])
+
+  const onScroll = (event: UIEvent<HTMLDivElement>): void => {
+    setScrollTop((event.target as HTMLDivElement).scrollTop)
+  }
+  const viewHeight = 460
+  const start = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN)
+  const end = Math.min(flatRows.length, Math.ceil((scrollTop + viewHeight) / ROW_HEIGHT) + OVERSCAN)
+  const windowed = flatRows.slice(start, end)
+
+  const toggleOp = (op: string): void => {
+    setOpFilter(prev => {
+      const next = new Set(prev)
+      if (next.has(op)) next.delete(op)
+      else next.add(op)
+      return next
+    })
+  }
+
+  return createElement('div', { className: css.tree, ref: treeRef, onScroll },
     createElement('div', { className: css.title },
       createElement('span', null, '变更'),
-      createElement('span', { className: css.titleCount }, props.changes.length),
+      createElement('span', { className: css.titleCount }, filtered.length),
       createElement('span', { className: css.modeToggle },
         createElement('button', {
           className: mode === 'ext' ? css.modeBtnActive : css.modeBtn,
@@ -378,14 +485,45 @@ export function ChangeTree(props: ChangeTreeProps): ReactElement {
         }, '目录'),
       ),
     ),
-    props.changes.length === 0
-      ? createElement('div', { className: css.empty }, '暂无文件变更')
+    // 4.x:过滤栏(搜索 / 操作 / 路径前缀)。
+    createElement('div', { className: css.filters },
+      createElement('input', {
+        className: css.filterInput,
+        placeholder: '搜索文件…',
+        value: query,
+        onChange: (event: { target: { value: string } }) => setQuery(event.target.value),
+      }),
+      createElement('div', { className: css.opToggles },
+        ['modify', 'create', 'delete'].map(op => createElement('button', {
+          key: op,
+          className: opFilter.has(op) ? css.opToggleOn : css.opToggle,
+          onClick: () => toggleOp(op),
+          title: op,
+        }, op === 'modify' ? 'M' : op === 'create' ? 'A' : 'D')),
+      ),
+      createElement('input', {
+        className: css.filterInput,
+        placeholder: '路径: src/**',
+        value: pathPrefix,
+        onChange: (event: { target: { value: string } }) => setPathPrefix(event.target.value),
+      }),
+    ),
+    filtered.length === 0
+      ? props.loading === true
+        ? createElement('div', { className: css.skeleton },
+          createElement('div', { className: css.skeletonRow }),
+          createElement('div', { className: css.skeletonRow, style: { width: '82%' } }),
+          createElement('div', { className: css.skeletonRow, style: { width: '90%' } }),
+          createElement('div', { className: css.skeletonRow, style: { width: '60%' } }),
+        )
+        : createElement('div', { className: css.empty },
+          filterActive ? '没有匹配的变更' : '暂无文件变更')
       : mode === 'ext'
         ? groups.map(group => createElement('div', { key: group.label, className: css.extGroup },
           createElement('div', { className: css.groupHeader },
             createElement('span', { className: css.groupLabel }, group.label),
             createElement('span', { className: css.groupStats },
-              `${group.changes.length} 个 · +${group.additions} -${group.deletions}`),
+              `${group.changes.length} · +${group.additions} -${group.deletions}`),
           ),
           group.changes.map(change => renderFileRow(change, rowProps, 0)),
         ))
@@ -394,7 +532,27 @@ export function ChangeTree(props: ChangeTreeProps): ReactElement {
             createElement('button', { className: css.modeBtn, onClick: () => setAllCollapsed(true) }, '全部折叠'),
             createElement('button', { className: css.modeBtn, onClick: () => setAllCollapsed(false) }, '全部展开'),
           ),
-          renderNode(root, 0, rowProps, collapsed, toggle),
+          // 4.x:窗口化 —— 用 paddingTop/Bottom 占位,只渲染视口内行。
+          createElement('div', {
+            className: css.windowWrap,
+            style: { paddingTop: start * ROW_HEIGHT, paddingBottom: (flatRows.length - end) * ROW_HEIGHT },
+          },
+          windowed.map(row => row.type === 'dir'
+            ? createElement('button', {
+              key: row.key,
+              className: css.dirRow,
+              style: { paddingLeft: 6 + row.depth * 14, height: ROW_HEIGHT },
+              onClick: () => toggle(row.path),
+              title: row.collapsed ? '展开目录' : '折叠目录',
+            },
+            createElement(Chevron, { collapsed: row.collapsed }),
+            createElement('span', { className: css.dirName }, row.name),
+            createElement('span', { className: css.dirStats },
+              `${row.dir!.files} · +${row.dir!.additions} -${row.dir!.deletions}`),
+            )
+            : renderFileRow(row.change as WireChange, rowProps, row.depth),
+          ),
+          ),
         ),
   )
 }

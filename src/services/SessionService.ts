@@ -64,11 +64,23 @@ export class SessionService extends Service {
     // the first session opens (shrinks the load/mutation race window).
     void this.ensureLoaded()
 
-    ctx.on('session/event', (session: Session, event: { type: string; turn?: number; reason?: string }) => {
+    ctx.on('session/event', (session: Session, event: { type: string; turn?: number; reason?: string; data?: unknown }) => {
       if (event.type === 'turn/start') {
         this.open(session)
       } else if (event.type === 'turn/end') {
         this.complete(session, event.reason)
+      } else if (event.type === 'session/title') {
+        // 标题(自动生成或用户重命名)到达 → 更新会话名,标题优先于轮次。
+        const title = (event.data as { title?: unknown } | undefined)?.title
+        if (typeof title === 'string' && title.length > 0) {
+          const id = this.active.get(String(session.id))
+          const cs = id !== undefined ? this.sessions.get(id) : undefined
+          if (cs !== undefined) {
+            cs.title = title
+            cs.name = title
+            this.persist()
+          }
+        }
       }
     })
 
@@ -108,6 +120,11 @@ export class SessionService extends Service {
         paths.set(relPathOf(change), change.operation)
         session.statistics.files = paths.size
         session.summary = deriveSummary(paths)
+        // 会话名 = 「第 N 轮 / 会话 xxx」 + 变更摘要;已有 agent 会话标题时保持标题。
+        if (session.title === undefined) {
+          const prefix = session.name.split(' · ')[0] ?? session.name
+          session.name = `${prefix} · ${session.summary}`
+        }
       }
       session.updatedAt = Date.now()
       this.persist()
@@ -192,8 +209,8 @@ export class SessionService extends Service {
     const id = `session-${this.nextId++}`
     const created: ChangeSession = {
       id,
-      // 名称含时间消除歧义:同一 agent 的多个 turn 会话可区分。
-      name: `Turn ${this.turnOf(session)} · ${hhmm()}`,
+      // 命名便于管理:有 agent 会话标题则用之(用户重命名/自动标题);否则第 N 轮,变更到达后追加摘要。
+      name: this.titleOf(session) ?? `第 ${this.turnOf(session)} 轮`,
       status: 'active',
       agentSessionId: key,
       workspace: session.header.cwd ?? '',
@@ -226,7 +243,7 @@ export class SessionService extends Service {
     const id = `session-${this.nextId++}`
     const created: ChangeSession = {
       id,
-      name: `Session ${shortId(agentSessionId)} · ${hhmm()}`,
+      name: `会话 ${shortId(agentSessionId)}`,
       status: 'active',
       agentSessionId,
       workspace,
@@ -240,6 +257,19 @@ export class SessionService extends Service {
     this.ctx.emit('session.created', created)
     this.persist()
     return created
+  }
+
+  /** 读取 agent 会话当前标题(经 sessionProjections;headless 无 projection 时返回 undefined)。 */
+  private titleOf(session: Session): string | undefined {
+    const projections = this.ctx.get('sessionProjections')
+    if (projections === undefined) return undefined
+    try {
+      const snap = projections.snapshot(session)
+      const title = (snap.values as { title?: string | null }).title
+      return typeof title === 'string' && title.length > 0 ? title : undefined
+    } catch {
+      return undefined
+    }
   }
 
   /** The latest turn number recorded on the session log, or 1. */

@@ -20,10 +20,12 @@
 
 import { createElement, useEffect, useMemo, useState, type ReactElement } from 'react'
 import type {
-  ChangeCenterApi, WireAcceptAllResult, WireChange, WirePolicyEvaluation, WirePolicyHit, WireReview, WireRisk,
+  ChangeCenterApi, GitActionResult, GitResponse, WireAcceptAllResult, WireChange, WireHistoryEvent, WirePolicyEvaluation, WirePolicyHit, WireReview, WireRisk,
 } from './index.ts'
-import { ChangeTree, dedupeByPath } from './ChangeTree.tsx'
+import { ChangeTree, dedupeByPath, relativePath } from './ChangeTree.tsx'
 import { ErrorBoundary } from './ErrorBoundary.tsx'
+import { TimelineView } from './TimelineView.tsx'
+import { OPERATION_MARK } from './i18n.ts'
 import { actionsFor } from './changeActions.ts'
 import { countDiff } from '../services/DiffService.ts'
 import { DiffViewer } from './DiffViewer.tsx'
@@ -74,6 +76,25 @@ interface WarnState {
   kind: 'conflict' | 'deny'
   items: { id: string; message: string }[]
 }
+/** 4.x Task Capsule 状态:会话状态 + 变更状态派生(Linear/Raycast 风格)。 */
+interface CapsuleState {
+  label: string
+  tone: 'active' | 'pending' | 'applied' | 'rejected' | 'error' | 'neutral'
+}
+
+function deriveCapsule(status: string, changes: WireChange[]): CapsuleState {
+  const applied = changes.filter(c => c.status === 'applied').length
+  const rejected = changes.filter(c => c.status === 'rejected').length
+  const pending = changes.filter(c => c.status === 'pending' || c.status === 'approved').length
+  if (status === 'active') return { label: '进行中', tone: 'active' }
+  if (status === 'failed') return { label: '失败', tone: 'error' }
+  if (status === 'cancelled') return { label: '已取消', tone: 'neutral' }
+  if (changes.length > 0 && pending === 0 && rejected === 0 && applied > 0) {
+    return { label: '已应用', tone: 'applied' }
+  }
+  if (rejected > 0) return { label: '已拒绝', tone: 'rejected' }
+  return { label: '待确认', tone: 'pending' }
+}
 
 /**
  * A change is reviewable only if it is a real file change with an actual
@@ -93,8 +114,9 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
     defaultMode = 'review', onEditorDirtyChange, summary: persistedSummary,
   } = props
   const [changes, setChanges] = useState<WireChange[]>([])
+  const [treeLoading, setTreeLoading] = useState(true)
   const [selectedChange, setSelectedChange] = useState<string | null>(null)
-  const [diffMode, setDiffMode] = useState<'unified' | 'side-by-side' | 'editor'>('unified')
+  const [diffMode, setDiffMode] = useState<'unified' | 'side-by-side' | 'editor'>('side-by-side')
   const [mode, setMode] = useState<'focus' | 'review'>(defaultMode)
   const [moreOpen, setMoreOpen] = useState(false)
   const [filter, setFilter] = useState<ChangeFilter>('all')
@@ -108,8 +130,22 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
   const [evaluations, setEvaluations] = useState<WirePolicyEvaluation[]>([])
   const [policyHits, setPolicyHits] = useState<WirePolicyHit[]>([])
   const [review, setReview] = useState<WireReview | null>(null)
+  // 4.1 Change Timeline:会话事件序列(供 Focus 迷你时间轴与 More 完整时间轴)。
+  const [timeline, setTimeline] = useState<WireHistoryEvent[]>([])
+  const [timelineOpen, setTimelineOpen] = useState(false)
+  const [filesOpen, setFilesOpen] = useState(false)
+  const [shortcutsOpen, setShortcutsOpen] = useState(false)
+  // 4.x Focus Git panel:手动 add/commit/push。
+  const [gitInfo, setGitInfo] = useState<GitResponse | null>(null)
+  const [gitOpen, setGitOpen] = useState(true)
+  const [commitMsg, setCommitMsg] = useState('')
+  const [pushConfirm, setPushConfirm] = useState(false)
+  const [gitBusy, setGitBusy] = useState(false)
+  const [gitError, setGitError] = useState<string | null>(null)
+  const [gitLogs, setGitLogs] = useState<string[]>([])
 
   const refresh = (): void => {
+    setTreeLoading(true)
     // 单个会话的变更量通常远小于分页上限，取整页避免静默截断。
     api.sessionChanges(sessionId, { limit: 500 })
       .then(page => {
@@ -122,6 +158,7 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
         })
       })
       .catch(err => setError(err instanceof Error ? err.message : String(err)))
+      .finally(() => setTreeLoading(false))
   }
 
   // 情报数据:风险信号与 Issues 过滤器只读这些轻量结果。
@@ -131,6 +168,10 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
       .then(({ evaluations: evs, hits }) => { setEvaluations(evs); setPolicyHits(hits) })
       .catch(() => { setEvaluations([]); setPolicyHits([]) })
     api.reviewGet(sessionId).then(setReview).catch(() => setReview(null))
+    // 4.1:时间轴数据(与 More 完整时间轴共用)。
+    api.timeline(sessionId)
+      .then(body => setTimeline(body.events))
+      .catch(() => setTimeline([]))
   }
 
   useEffect(() => {
@@ -197,6 +238,10 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
   const change = fileChanges.find(c => c.id === selectedChange) ?? null
   const pendingCount = fileChanges.filter(c => c.status === 'pending').length
   const appliedTotal = fileChanges.filter(c => c.status === 'applied').length
+  const capsule = deriveCapsule(status, fileChanges)
+  // Focus Git panel 数据:repo 信息 + 未提交文件。
+  const gitRepo = gitInfo?.repo !== undefined && !('error' in gitInfo.repo) ? gitInfo.repo : null
+  const gitEntries = gitInfo?.entries ?? []
   // S-8:优先 host 落库摘要(重启后仍可用);旧会话缺省时客户端启发式兜底。
   const summary = persistedSummary !== undefined && persistedSummary.length > 0
     ? persistedSummary
@@ -249,6 +294,12 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
 
   // V-7:脏状态 = 编辑草稿 ≠ 当前版本的 after。
   const editorDirty = change !== null && editorDraft !== (change.after ?? '')
+  // 选中变更切换时同步编辑器草稿到新变更的 after。refresh 自动选中首个变更
+  // 时走不到 selectChange,这里兜底;用户正在编辑当前变更时 change.id 不变,不会被打断。
+  useEffect(() => {
+    if (change !== null) setEditorDraft(change.after ?? '')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [change?.id])
   useEffect(() => {
     onEditorDirtyChange?.(editorDirty)
   }, [editorDirty])
@@ -263,6 +314,11 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
       const target = event.target as HTMLElement | null
       if (target !== null && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return
       const mod = event.metaKey || event.ctrlKey
+      if (mod && event.key === 'k') {
+        event.preventDefault()
+        setShortcutsOpen(true)
+        return
+      }
       if (mod && event.key === 'Enter') {
         event.preventDefault()
         if (change !== null && !panelLocked && actionsFor(change.status).canApply) {
@@ -272,7 +328,6 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
       }
       const currentIndex = change !== null ? filteredChanges.findIndex(c => c.id === change.id) : -1
       switch (event.key) {
-        case 'Escape': setMode('focus'); return
         case 'ArrowDown':
         case 'j': {
           if (currentIndex >= 0 && currentIndex < filteredChanges.length - 1) {
@@ -287,24 +342,30 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
           if (currentIndex > 0) handleSelect(filteredChanges[currentIndex - 1]!.id)
           return
         }
-        case 'r': setMoreOpen(true); return
+        case 'm': setMoreOpen(true); return
         case 'a':
           if (change !== null && !panelLocked && actionsFor(change.status).canApply) {
             void api.applyChange(change.id).then(afterAction).catch(err => setError(err instanceof Error ? err.message : String(err)))
           }
           return
+        case 'r':
         case 'x':
           if (change !== null && !panelLocked && actionsFor(change.status).canReject) quickAction(change.id, 'reject')
           return
+        case 'u':
         case 'z':
           if (change !== null && !panelLocked && actionsFor(change.status).canRollback) quickAction(change.id, 'rollback')
+          return
+        case 'Escape':
+          if (shortcutsOpen) { setShortcutsOpen(false); return }
+          setMode('focus')
           return
         default: return
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [mode, change, filteredChanges, panelLocked])
+  }, [mode, change, filteredChanges, panelLocked, shortcutsOpen])
 
   /** 选择变更(经守卫:未保存修改时先三选)。 */
   const handleSelect = (id: string): void => {
@@ -419,6 +480,50 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
     setPendingSelect(null)
   }
 
+  const refreshGit = (): void => {
+    api.gitStatus(sessionId).then(setGitInfo).catch(() => setGitInfo(null))
+    api.gitLog(sessionId).then(r => { if (r.entries !== undefined) setGitLogs(r.entries) }).catch(() => setGitLogs([]))
+  }
+  useEffect(() => {
+    if (mode !== 'focus') return
+    refreshGit()
+  }, [mode, sessionId])
+
+  /** Git 写操作统一反馈:成功 toast + 刷新状态;失败显示在面板内。 */
+  const runGit = (action: () => Promise<GitActionResult>, okText: string): void => {
+    setGitBusy(true)
+    setGitError(null)
+    action()
+      .then(result => {
+        if (result.ok) {
+          setToast({ text: okText, kind: 'ok' })
+          refreshGit()
+        } else {
+          setGitError(result.error ?? 'git 操作失败')
+        }
+      })
+      .catch(err => setGitError(err instanceof Error ? err.message : String(err)))
+      .finally(() => setGitBusy(false))
+  }
+
+  const doAddAll = (): void => {
+    runGit(() => api.gitAdd(sessionId), '✓ 已暂存全部变更')
+  }
+  const doCommit = (): void => {
+    const message = commitMsg.trim()
+    if (message.length === 0) return
+    setCommitMsg('')
+    runGit(() => api.gitCommit(sessionId, message), '✓ 已提交')
+  }
+  const doPush = (): void => {
+    if (!pushConfirm) {
+      setPushConfirm(true)
+      return
+    }
+    setPushConfirm(false)
+    runGit(() => api.gitPush(sessionId), '✓ 已推送')
+  }
+
   const locator = (id: string): void => {
     setMode('review')
     setSelectedChange(id)
@@ -437,6 +542,8 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
     return createElement(ErrorBoundary, null,
       createElement('div', { className: css.panel },
         error !== null ? createElement('p', { className: css.error }, error) : null,
+        // 4.x turn 状态卡 与 Git 操作卡 左右并列(focusRow)。
+        createElement('div', { className: css.focusRow },
         createElement('div', { className: css.focusCard },
           createElement('div', { className: css.focusHead },
             createElement('span', { className: css.focusTitle }, name),
@@ -444,7 +551,7 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
           ),
           createElement('div', { className: css.focusSummary }, summary),
           createElement('div', { className: css.focusStats },
-            createElement('span', null, `✓ ${displayStats.files} files changed`),
+            createElement('span', null, `✓ ${displayStats.files} 个文件已修改`),
             displayStats.additions > 0
               ? createElement('span', { className: css.statsAdd }, `+${displayStats.additions}`)
               : null,
@@ -456,20 +563,134 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
           createElement('div', { className: css.focusStatus },
             status === 'active'
               ? createElement('span', { className: css.focusWorking }, '● AI 工作中')
-              : createElement('span', null, '● Ready'),
+              : createElement('span', null, '● 就绪'),
+          ),
+          // 4.1 Change Timeline:Focus 迷你时间轴(展开显示最近事件)。
+          createElement('div', { className: css.focusTimeline },
+            createElement('button', {
+              onClick: () => setTimelineOpen(!timelineOpen),
+              className: css.timelineToggle,
+            }, `${timelineOpen ? '▾' : '▸'} Timeline`),
+            timelineOpen
+              ? createElement(TimelineView, { events: timeline, changes: fileChanges, limit: 5 })
+              : null,
+          ),
+          // 4.4 Agent Intent:Focus 文件分解(修改了什么,一目了然)。
+          createElement('div', { className: css.focusTimeline },
+            createElement('button', {
+              onClick: () => setFilesOpen(!filesOpen),
+              className: css.timelineToggle,
+            }, `${filesOpen ? '▾' : '▸'} 修改 ${fileChanges.length} 个文件`),
+            filesOpen
+              ? createElement('div', { className: css.focusFiles },
+                fileChanges.slice(0, 12).map(change => {
+                  const counts = countDiff(change.before, change.after)
+                  return createElement('div', { key: change.id, className: css.focusFile },
+                    createElement('span', { className: focusMarkClass(change.operation) }, OPERATION_MARK[change.operation] ?? '?'),
+                    createElement('span', { className: css.focusFileName }, relativePath(change)),
+                    counts.additions + counts.deletions > 0
+                      ? createElement('span', { className: css.focusFileCounts },
+                        counts.additions > 0 ? createElement('span', { className: css.statsAdd }, `+${counts.additions}`) : null,
+                        counts.deletions > 0 ? createElement('span', { className: css.statsDel }, `-${counts.deletions}`) : null,
+                      )
+                      : null,
+                  )
+                }),
+                fileChanges.length > 12
+                  ? createElement('div', { className: css.focusFileMore }, `… 共 ${fileChanges.length} 个文件`)
+                  : null,
+              )
+              : null,
           ),
           // 3.0.3:Focus 只给一个主要动作;无待审时显示「✓ 已全部应用」。
           createElement('div', { className: css.focusActions },
             createElement('button', {
               onClick: () => setMode('review'),
               className: baseCss.buttonGhost,
-            }, 'Review'),
+            }, '审查'),
             createElement('button', {
               onClick: () => applyAll(false),
               disabled: busy || pendingCount === 0,
               className: baseCss.buttonPrimary,
             }, busy ? '处理中…' : pendingCount === 0 ? '✓ 已全部应用' : '全部应用'),
           ),
+        ),
+        // 4.x Git 操作独立于 turn 状态卡(与变更审查分开管理)。
+        createElement('div', { className: css.gitPanel },
+          createElement('div', { className: css.gitPanelHead },
+            createElement('button', {
+              onClick: () => setGitOpen(!gitOpen),
+              className: css.timelineToggle,
+            }, `${gitOpen ? '▾' : '▸'} Git 操作`),
+            gitRepo !== null
+              ? createElement('span', { className: css.gitMeta },
+                `${gitRepo.branch} · ${gitRepo.head}${gitRepo.dirty ? ' · 有未提交修改' : ' · 干净'}`)
+              : null,
+          ),
+          gitOpen
+            ? createElement('div', { className: css.gitPanelBody },
+              gitError !== null
+                ? createElement('div', { className: css.gitError }, gitError)
+                : null,
+              gitEntries.length > 0
+                ? createElement('div', { className: css.gitFiles },
+                  gitEntries.slice(0, 6).map(entry => createElement('div', { key: `${entry.code} ${entry.path}`, className: css.gitFileRow },
+                    createElement('span', { className: css.gitFileCode }, entry.code),
+                    createElement('span', { className: css.gitFilePath }, entry.path),
+                  )),
+                  gitEntries.length > 6
+                    ? createElement('div', { className: css.gitMore }, `… 共 ${gitEntries.length} 项`)
+                    : null,
+                )
+                : createElement('div', { className: css.gitClean }, '工作区干净'),
+              gitLogs.length > 0
+                ? createElement('div', { className: css.gitLogs },
+                  createElement('div', { className: css.gitLogsTitle }, '最近提交'),
+                  gitLogs.slice(0, 5).map(line => {
+                    const space = line.indexOf(' ')
+                    const hash = space > 0 ? line.slice(0, space) : line
+                    const subject = space > 0 ? line.slice(space + 1) : ''
+                    return createElement('div', { key: line, className: css.gitLogRow },
+                      createElement('span', { className: css.gitLogHash }, hash),
+                      subject.length > 0 ? createElement('span', { className: css.gitLogSubject }, subject) : null,
+                    )
+                  }),
+                )
+                : null,
+              createElement('div', { className: css.gitOps },
+                createElement('button', {
+                  onClick: doAddAll,
+                  disabled: gitBusy || gitEntries.length === 0,
+                  className: baseCss.buttonGhost,
+                }, '全部暂存'),
+                createElement('input', {
+                  className: `${baseCss.input} ${css.gitCommitInput}`,
+                  placeholder: '提交信息…',
+                  value: commitMsg,
+                  onChange: (event: { target: { value: string } }) => setCommitMsg(event.target.value),
+                  onKeyDown: (event: KeyboardEvent) => {
+                    if (event.key === 'Enter') doCommit()
+                  },
+                }),
+                createElement('button', {
+                  onClick: doCommit,
+                  disabled: gitBusy || commitMsg.trim().length === 0,
+                  className: baseCss.buttonPrimary,
+                }, '提交'),
+              ),
+              createElement('div', { className: css.gitPushRow },
+                pushConfirm
+                  ? createElement('span', { className: css.gitPushHint }, '确认推送到 origin?')
+                  : null,
+                createElement('button', {
+                  onClick: doPush,
+                  disabled: gitBusy,
+                  className: pushConfirm ? baseCss.buttonPrimary : baseCss.buttonGhost,
+                }, pushConfirm ? '确认推送' : '推送'),
+              ),
+            )
+            : null,
+        ),
         ),
         // 批量反馈(toast/轻确认)在 Focus 下同样可见。
         toast !== null ? renderToast(toast, css, baseCss, setToast, undoRemaining) : null,
@@ -489,15 +710,17 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
     createElement('div', { className: css.panel },
       error !== null ? createElement('p', { className: css.error }, error) : null,
 
-      // 头部:Turn + 状态 + 摘要 + 风险信号 + 模式/更多开关。
+      // 4.x Task Capsule 头部:状态胶囊 + 标题 + 统计(去 Git diff 感)。
       createElement('div', { className: css.header },
         createElement('div', { className: css.headerMain },
-          createElement('div', { className: css.headerLine },
-            createElement('span', { className: css.headerTitle }, name),
-            createElement('span', { className: sessionStatusClass(status, baseCss, css) }, sessionStatusZh(status)),
+          createElement('div', { className: css.capsuleLine },
+            createElement('span', { className: css.capsuleDot, 'data-tone': capsule.tone }),
+            createElement('span', { className: css.capsuleLabel, 'data-tone': capsule.tone }, capsule.label),
+            createElement('span', { className: css.capsuleHint },
+              pendingCount > 0 ? `${pendingCount} 项待确认` : '全部已处理'),
           ),
+          createElement('div', { className: css.headerTitle }, name),
           createElement('div', { className: css.headerSub },
-            createElement('span', { className: css.headerSummary }, summary),
             createElement('span', { className: css.headerStats },
               createElement('span', null, `${displayStats.files} 个文件`),
               displayStats.additions > 0
@@ -507,10 +730,18 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
                 ? createElement('span', { className: css.statsDel }, `-${displayStats.deletions}`)
                 : null,
             ),
+            summary.length > 0
+              ? createElement('span', { className: css.headerSummary }, summary)
+              : null,
           ),
         ),
         createElement('div', { className: css.headerRight },
           createElement(RiskSignal, { level: signal.level, hint: signal.hint }),
+          createElement('button', {
+            onClick: () => setShortcutsOpen(!shortcutsOpen),
+            className: baseCss.buttonGhost,
+            title: '快捷键(⌘K)',
+          }, '⌘K'),
           createElement('button', {
             onClick: () => setMode('focus'),
             className: baseCss.buttonGhost,
@@ -524,35 +755,32 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
         ),
       ),
 
-      // V-4 顶部固定批量操作条 + V-11 过滤。
+      // ⌘K 快捷键帮助浮层。
+      shortcutsOpen
+        ? createElement('div', { className: css.shortcutsOverlay, onClick: () => setShortcutsOpen(false) },
+          createElement('div', { className: css.shortcutsCard, onClick: (event: MouseEvent) => event.stopPropagation() },
+            createElement('div', { className: css.shortcutsTitle }, '快捷键'),
+            createElement('div', { className: css.shortcutsRow }, createElement('kbd', null, 'A'), ' 应用当前变更'),
+            createElement('div', { className: css.shortcutsRow }, createElement('kbd', null, 'R'), ' 拒绝当前变更'),
+            createElement('div', { className: css.shortcutsRow }, createElement('kbd', null, 'U'), ' 回滚当前变更'),
+            createElement('div', { className: css.shortcutsRow }, createElement('kbd', null, 'J'), createElement('kbd', null, 'K'), ' 上 / 下切换文件'),
+            createElement('div', { className: css.shortcutsRow }, createElement('kbd', null, 'M'), ' 展开 AI 摘要面板'),
+            createElement('div', { className: css.shortcutsRow }, createElement('kbd', null, '⌘Enter'), ' 应用当前变更'),
+            createElement('div', { className: css.shortcutsRow }, createElement('kbd', null, 'Esc'), ' 收起为聚焦卡片'),
+          ),
+        )
+        : null,
+
+      // V-11 过滤 tabs + 待审徽标(批量操作移到底部 Action Dock)。
       createElement('div', { className: css.actionBar },
         createElement('div', { className: css.filterTabs },
           filterTab('all', filter, '全部', () => setFilter('all')),
           filterTab('pending', filter, '待处理', () => setFilter('pending')),
           filterTab('issues', filter, `问题${issueIds.size > 0 ? ` ${issueIds.size}` : ''}`, () => setFilter('issues')),
         ),
-        createElement('div', { className: css.batchOps },
-          pendingCount > 0
-            ? createElement('span', { className: css.pendingBadge }, `${pendingCount} 项待审查`)
-            : null,
-          createElement('button', {
-            onClick: () => applyAll(false),
-            disabled: busy || pendingCount === 0,
-            className: baseCss.buttonPrimary,
-          }, busy ? '处理中…' : '✓ 全部应用'),
-          createElement('button', {
-            onClick: rejectAll,
-            disabled: busy || pendingCount === 0,
-            className: baseCss.buttonDanger,
-          }, '拒绝'),
-          appliedTotal > 0
-            ? createElement('button', {
-              onClick: rollbackAll,
-              disabled: busy,
-              className: baseCss.buttonGhost,
-            }, '全部回滚')
-            : null,
-        ),
+        pendingCount > 0
+          ? createElement('span', { className: css.pendingBadge }, `${pendingCount} 项待确认`)
+          : null,
       ),
 
       // 轻确认块:有风险时给 [查看] [仍然全部应用(force)]。
@@ -590,9 +818,21 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
           onRepend: (id) => quickAction(id, 'repend'),
           onApply: quickApply,
           disabled: panelLocked,
+          loading: treeLoading,
           // S-6:策略 deny 的变更显示 ⛔。
           deniedIds,
         }),
+        moreOpen
+          ? createElement(IntelligencePanel, {
+            sessionId,
+            workspace,
+            api,
+            changes: fileChanges,
+            timeline,
+            onLocate: locator,
+            onChanged: afterAction,
+          })
+          : null,
         change === null
           ? createElement('div', { className: css.centerEmpty },
             changes.length > 0
@@ -611,6 +851,7 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
                   .catch(err => setError(err instanceof Error ? err.message : String(err)))
               },
               disabled: panelLocked,
+              review,
             }),
             createElement(ReviewBar, {
               change,
@@ -620,16 +861,40 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
               disabled: panelLocked,
             }),
           ),
-        moreOpen
-          ? createElement(IntelligencePanel, {
-            sessionId,
-            workspace,
-            api,
-            changes: fileChanges,
-            onLocate: locator,
-            onChanged: afterAction,
-          })
-          : null,
+      ),
+      // 4.x 底部 Action Dock:选中计数 + 拒绝/应用选中/全部应用。
+      createElement('div', { className: css.actionDock },
+        createElement('div', { className: css.dockInfo },
+          createElement('span', { className: css.dockCount }, `${fileChanges.length} 个变更`),
+          change !== null
+            ? createElement('span', { className: css.dockSelected }, `已选 ${change.path.split('/').pop()}`)
+            : null,
+        ),
+        createElement('div', { className: css.dockActions },
+          appliedTotal > 0
+            ? createElement('button', {
+              onClick: rollbackAll,
+              disabled: busy,
+              className: baseCss.buttonGhost,
+              title: '撤销本会话所有已应用的变更',
+            }, '↶ 回滚')
+            : null,
+          createElement('button', {
+            onClick: rejectAll,
+            disabled: busy || pendingCount === 0,
+            className: baseCss.buttonDanger,
+          }, '拒绝全部'),
+          createElement('button', {
+            onClick: () => change !== null && quickApply(change.id),
+            disabled: busy || change === null || (change.status !== 'pending' && change.status !== 'approved'),
+            className: baseCss.buttonGhost,
+          }, '应用选中'),
+          createElement('button', {
+            onClick: () => applyAll(false),
+            disabled: busy || pendingCount === 0,
+            className: baseCss.buttonPrimary,
+          }, busy ? '处理中…' : '✓ 全部应用'),
+        ),
       ),
     ),
   )
@@ -689,6 +954,15 @@ function filterTab(value: ChangeFilter, current: ChangeFilter, label: string, on
     onClick,
     className: current === value ? css.filterTabActive : css.filterTab,
   }, label)
+}
+
+/** 4.4 Focus 文件分解行的操作徽标。 */
+function focusMarkClass(operation: string): string {
+  switch (operation) {
+    case 'create': return css.markCreate
+    case 'delete': return css.markDelete
+    default: return css.markModify
+  }
 }
 
 /** 会话状态 → 徽标类（active=工作、completed=成功、failed=突出）。 */

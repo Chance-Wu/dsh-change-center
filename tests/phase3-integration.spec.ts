@@ -111,3 +111,53 @@ describe('VerificationService', () => {
     rmSync(dir, { recursive: true, force: true })
   })
 })
+
+describe('GitService write ops (manual add/commit/push)', () => {
+  it('stages paths with git add and reports index status', async () => {
+    const ctx = await setup()
+    writeFileSync(join(repoDir, 'b.txt'), 'new\n')
+    const addResult = await ctx.git.add(repoDir, ['b.txt'])
+    expect(addResult.ok).toBe(true)
+    const status = await ctx.git.status(repoDir)
+    if ('error' in status) throw new Error(status.error)
+    // 已暂存:porcelain "A  b.txt"(index A,worktree 空格)。
+    expect(status.some(entry => entry.path === 'b.txt' && entry.code === 'A')).toBe(true)
+    execSync('git reset -q', { cwd: repoDir })
+    rmSync(join(repoDir, 'b.txt'))
+  })
+
+  it('commits staged changes and reports the hash', async () => {
+    const ctx = await setup()
+    writeFileSync(join(repoDir, 'commit-me.txt'), 'payload\n')
+    execSync('git add commit-me.txt', { cwd: repoDir })
+    const result = await ctx.git.commit(repoDir, 'add commit-me.txt')
+    expect(result.ok).toBe(true)
+    expect((result as { hash?: string }).hash).toMatch(/^[0-9a-f]{7,}$/)
+    const log = await ctx.git.log(repoDir, 1)
+    if ('error' in log) throw new Error(log.error)
+    expect(log.entries[0]).toContain('add commit-me.txt')
+  })
+
+  it('rejects an empty commit message', async () => {
+    const ctx = await setup()
+    const result = await ctx.git.commit(repoDir, '   ')
+    expect(result.ok).toBe(false)
+  })
+
+  it('pushes to a configured bare remote', async () => {
+    const remote = mkdtempSync(join(tmpdir(), 'dsh-git-remote-'))
+    execSync('git init --bare -q', { cwd: remote })
+    const ctx = await setup()
+    writeFileSync(join(repoDir, 'push-me.txt'), 'x\n')
+    execSync('git add push-me.txt', { cwd: repoDir })
+    execSync('git commit -qm "push me"', { cwd: repoDir })
+    execSync(`git remote add origin ${remote}`, { cwd: repoDir })
+    const result = await ctx.git.push(repoDir, 'origin', 'main')
+    expect(result.ok).toBe(true)
+    // 远端存在该提交。
+    const inRemote = execSync('git log --oneline -1', { cwd: remote }).toString().trim()
+    expect(inRemote).toContain('push me')
+    execSync('git remote remove origin', { cwd: repoDir })
+    rmSync(remote, { recursive: true, force: true })
+  })
+})

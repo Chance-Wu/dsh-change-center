@@ -4,9 +4,9 @@
   flex-direction: column;
   min-width: 0;
   height: 100%;
-  padding: 12px;
+  padding: 16px;
   box-sizing: border-box;
-  gap: 10px;
+  gap: 12px;
 }
 
 .error {
@@ -20,13 +20,15 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
+  padding: 2px 2px 10px;
+  border-bottom: 1px solid var(--dsw-alias-border-l1);
 }
 
 .headerMain {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
 }
 
 .headerLine {
@@ -36,8 +38,9 @@
 }
 
 .headerTitle {
-  font-size: var(--dsw-font-s-14);
-  font-weight: 700;
+  font-size: var(--dsw-font-m-16);
+  font-weight: 600;
+  letter-spacing: 0.01em;
   color: var(--dsw-alias-label-primary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -82,17 +85,31 @@
   font-weight: 600;
 }
 
-/* ── Focus 卡片（V-2）：极简「当前 Turn」 ─────────────────────────── */
+/* ── Focus 卡片（4.x 审美）：清晰的状态卡，强层级 ─────────────────── */
 .focusCard {
   border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 12px;
-  background: var(--dsw-alias-bg-layer-2);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--dsw-alias-bg-layer-3) 55%, transparent), transparent 40%),
+    var(--dsw-alias-bg-layer-2);
   box-shadow: var(--dsw-shadow-lv1);
-  padding: 14px 16px;
+  padding: 18px 20px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  max-width: 420px;
+  gap: 10px;
+  flex: 1 1 0;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+/* 4.x turn 状态卡 与 Git 操作卡 左右并列(窄窗口自动换行) */
+.focusRow {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  flex-wrap: wrap;
+  flex: 1;
+  min-width: 0;
 }
 
 .focusHead {
@@ -102,13 +119,14 @@
 }
 
 .focusTitle {
-  font-size: var(--dsw-font-m-16);
+  font-size: var(--dsw-font-l-18);
   font-weight: 700;
+  letter-spacing: 0.01em;
   color: var(--dsw-alias-label-primary);
 }
 
 .focusSummary {
-  font-size: var(--dsw-font-xxs-12);
+  font-size: var(--dsw-font-s-14);
   color: var(--dsw-alias-label-secondary);
 }
 
@@ -116,9 +134,10 @@
   display: flex;
   align-items: baseline;
   gap: 6px;
-  font-size: var(--dsw-font-xxs-12);
-  color: var(--dsw-alias-label-secondary);
+  font-size: var(--dsw-font-s-14);
+  color: var(--dsw-alias-label-primary);
   font-variant-numeric: tabular-nums;
+  font-weight: 500;
 }
 
 .focusWorking {
@@ -137,6 +156,10 @@
   font-size: var(--dsw-font-xxs-12);
   font-weight: 600;
   color: var(--dsw-alias-label-secondary);
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-3);
+  border: 1px solid var(--dsw-alias-border-l1);
 }
 
 .focusStatus {
@@ -145,10 +168,97 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* 4.1:Focus 迷你时间轴 */
+.focusTimeline {
+  margin-top: 2px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-3);
+  border: 1px solid var(--dsw-alias-border-l1);
+}
+
+.timelineToggle {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-size: var(--dsw-font-xxs-12);
+  font-weight: 600;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+}
+
+/* 4.4:Focus 文件分解 */
+.focusFiles {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.focusFile {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--dsw-font-xxs-12);
+  color: var(--dsw-alias-label-secondary);
+  min-width: 0;
+}
+
+.focusFileMore {
+  font-size: var(--dsw-font-xxxs-11);
+  color: var(--dsw-alias-label-tertiary);
+  padding-top: 2px;
+}
+
+.markCreate {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  font-size: var(--dsw-font-xxxs-11);
+  font-weight: 700;
+  color: var(--dsw-alias-state-success-primary);
+  background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 14%, transparent);
+}
+
+.markModify {
+  composes: markCreate;
+  color: var(--dsw-alias-state-business-primary);
+  background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 14%, transparent);
+}
+
+.markDelete {
+  composes: markCreate;
+  color: var(--dsw-alias-state-error-primary);
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 14%, transparent);
+}
+
+.focusFileName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.focusFileCounts {
+  flex: none;
+  margin-left: auto;
+  display: inline-flex;
+  gap: 4px;
+  font-size: var(--dsw-font-xxxs-11);
+  font-variant-numeric: tabular-nums;
+}
+
 .focusActions {
   display: flex;
   gap: 8px;
-  margin-top: 6px;
+  margin-top: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--dsw-alias-border-l1);
 }
 
 /* ── 批量操作条 + Issues 过滤（V-4 / V-11） ───────────────────────── */
@@ -158,6 +268,10 @@
   justify-content: space-between;
   gap: 10px;
   flex-wrap: wrap;
+  padding: 8px 10px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-2);
 }
 
 .filterTabs {
@@ -173,19 +287,21 @@
   background: transparent;
   color: var(--dsw-alias-label-tertiary);
   font-size: var(--dsw-font-xxs-12);
-  padding: 3px 10px;
+  padding: 4px 12px;
   border-radius: 6px;
   cursor: pointer;
   transition: background 120ms ease, color 120ms ease;
 }
 .filterTab:hover {
   color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-interactive-bg-hover);
 }
 .filterTabActive {
   composes: filterTab;
   background: var(--dsw-alias-bg-layer-2);
   color: var(--dsw-alias-label-primary);
   box-shadow: var(--dsw-shadow-lv1);
+  font-weight: 600;
 }
 
 .batchOps {
@@ -210,24 +326,34 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  border: 1px solid var(--dsw-alias-state-success-primary);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 10%, var(--dsw-alias-bg-layer-2));
-  padding: 8px 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-left: 3px solid var(--dsw-alias-state-success-primary);
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-2);
+  box-shadow: var(--dsw-shadow-lv2);
+  padding: 10px 12px;
   font-size: var(--dsw-font-xxs-12);
   color: var(--dsw-alias-label-primary);
+  animation: toastSlideIn 160ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+@keyframes toastSlideIn {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .toastOk {
+    animation: none;
+  }
 }
 
 .toastWarn {
   composes: toastOk;
-  border-color: var(--dsw-alias-state-warn-primary);
-  background: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 12%, var(--dsw-alias-bg-layer-2));
+  border-left-color: var(--dsw-alias-state-warn-primary);
 }
 
 .toastError {
   composes: toastOk;
-  border-color: var(--dsw-alias-state-error-primary);
-  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 10%, var(--dsw-alias-bg-layer-2));
+  border-left-color: var(--dsw-alias-state-error-primary);
 }
 
 .toastClose {
@@ -244,7 +370,7 @@
 /* ── 轻确认块：有风险的批量应用（V-4） ───────────────────────────── */
 .warnBlock {
   border: 1px solid var(--dsw-alias-state-warn-primary);
-  border-radius: 10px;
+  border-radius: 12px;
   background: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 8%, var(--dsw-alias-bg-layer-2));
   padding: 8px 12px;
   font-size: var(--dsw-font-xxs-12);
@@ -281,7 +407,7 @@
   align-items: center;
   gap: 8px;
   border: 1px solid var(--dsw-alias-state-warn-primary);
-  border-radius: 10px;
+  border-radius: 12px;
   background: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 10%, var(--dsw-alias-bg-layer-2));
   padding: 8px 12px;
 }
@@ -299,12 +425,13 @@
   align-items: flex-start;
   flex: 1;
   min-height: 0;
-  overflow: hidden;
+  overflow: auto;
 }
 
 /* 中栏：diff + 审查操作 */
 .viewerWrap {
-  flex: 1 1 420px;
+  flex: 1 1 360px;
+  min-width: 280px;
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -320,6 +447,310 @@
   align-items: center;
   justify-content: center;
   border: 1px dashed var(--dsw-alias-border-l2);
-  border-radius: 10px;
+  border-radius: 12px;
   background: var(--dsw-alias-bg-layer-2);
+}
+
+/* ── 4.x Task Capsule 头部 ───────────────────────────── */
+.capsuleLine {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.capsuleDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+}
+.capsuleDot[data-tone='active'],
+.capsuleDot[data-tone='pending'] {
+  background: var(--dsw-alias-state-warn-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--dsw-alias-state-warn-primary) 18%, transparent);
+}
+.capsuleDot[data-tone='applied'],
+.capsuleDot[data-tone='ok'] {
+  background: var(--dsw-alias-state-success-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--dsw-alias-state-success-primary) 18%, transparent);
+}
+.capsuleDot[data-tone='rejected'],
+.capsuleDot[data-tone='error'] {
+  background: var(--dsw-alias-state-error-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--dsw-alias-state-error-primary) 18%, transparent);
+}
+.capsuleDot[data-tone='neutral'] {
+  background: var(--dsw-alias-label-tertiary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--dsw-alias-label-tertiary) 18%, transparent);
+}
+
+.capsuleLabel {
+  font-size: var(--dsw-font-xxxs-11);
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+.capsuleLabel[data-tone='active'],
+.capsuleLabel[data-tone='pending'] {
+  color: var(--dsw-alias-state-warn-primary);
+}
+.capsuleLabel[data-tone='applied'],
+.capsuleLabel[data-tone='ok'] {
+  color: var(--dsw-alias-state-success-primary);
+}
+.capsuleLabel[data-tone='rejected'],
+.capsuleLabel[data-tone='error'] {
+  color: var(--dsw-alias-state-error-primary);
+}
+.capsuleLabel[data-tone='neutral'] {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.capsuleHint {
+  font-size: var(--dsw-font-xxxs-11);
+  color: var(--dsw-alias-label-tertiary);
+  margin-left: 2px;
+}
+
+/* 4.x 底部 Action Dock */
+.actionDock {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-2);
+  box-shadow: var(--dsw-shadow-lv1);
+  flex: none;
+}
+
+.dockInfo {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+.dockCount {
+  font-size: var(--dsw-font-xxs-12);
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.dockSelected {
+  font-size: var(--dsw-font-xxxs-11);
+  color: var(--dsw-alias-label-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dockActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+/* ⌘K 快捷键帮助浮层 */
+.shortcutsOverlay {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 48px;
+  background: var(--dsw-alias-bg-mask-1);
+  border-radius: 12px;
+}
+.shortcutsCard {
+  min-width: 240px;
+  background: var(--dsw-alias-bg-layer-2);
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 12px;
+  box-shadow: var(--dsw-shadow-lv3);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.shortcutsTitle {
+  font-size: var(--dsw-font-xxs-12);
+  font-weight: 700;
+  color: var(--dsw-alias-label-primary);
+  margin-bottom: 2px;
+}
+.shortcutsRow {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--dsw-font-xxs-12);
+  color: var(--dsw-alias-label-secondary);
+}
+.shortcutsRow kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-bottom-width: 2px;
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-layer-3);
+  color: var(--dsw-alias-label-primary);
+  font-size: var(--dsw-font-xxxs-11);
+  font-family: inherit;
+  font-weight: 600;
+}
+
+/* 4.x Focus Git panel:手动 add/commit/push */
+.gitPanel {
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-2);
+  box-shadow: var(--dsw-shadow-lv1);
+  padding: 14px 16px;
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.gitPanelHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.gitMeta {
+  font-size: var(--dsw-font-xxxs-11);
+  color: var(--dsw-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gitPanelBody {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.gitError {
+  font-size: var(--dsw-font-xxs-12);
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.gitFiles {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 140px;
+  overflow: auto;
+}
+
+.gitFileRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--dsw-font-xxxs-11);
+  color: var(--dsw-alias-label-secondary);
+  white-space: nowrap;
+}
+
+.gitFileCode {
+  flex: none;
+  font-family: var(--ds-font-family-code);
+  font-weight: 600;
+  color: var(--dsw-alias-state-warn-primary);
+  background: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 12%, transparent);
+  border-radius: 6px;
+  padding: 0 5px;
+}
+
+.gitFilePath {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.gitMore {
+  font-size: var(--dsw-font-xxxs-11);
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.gitClean {
+  font-size: var(--dsw-font-xxs-12);
+  color: var(--dsw-alias-state-success-primary);
+}
+
+.gitOps {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.gitCommitInput {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+}
+
+.gitPushRow {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.gitPushHint {
+  font-size: var(--dsw-font-xxs-12);
+  color: var(--dsw-alias-state-warn-primary);
+}
+
+/* 最近提交(前 5 条) */
+.gitLogs {
+  border-top: 1px solid var(--dsw-alias-border-l1);
+  padding-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.gitLogsTitle {
+  font-size: var(--dsw-font-xxxs-11);
+  font-weight: 700;
+  color: var(--dsw-alias-label-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  margin-bottom: 2px;
+}
+
+.gitLogRow {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: var(--dsw-font-xxxs-11);
+  color: var(--dsw-alias-label-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.gitLogHash {
+  flex: none;
+  font-family: var(--ds-font-family-code);
+  color: var(--dsw-alias-state-business-primary);
+}
+
+.gitLogSubject {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
 }

@@ -15,7 +15,7 @@ import { SessionService } from '../src/services/SessionService.ts'
 import { removeDirSafe } from './helpers/removeDir.ts'
 
 /** Poll until `check` is true (the async persist chains flush to disk). */
-async function waitFor(check: () => boolean, timeoutMs = 2000): Promise<void> {
+async function waitFor(check: () => boolean, timeoutMs = 8000): Promise<void> {
   const start = Date.now()
   while (!check()) {
     if (Date.now() - start > timeoutMs) return

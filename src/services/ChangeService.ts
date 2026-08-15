@@ -98,6 +98,27 @@ export interface AcceptAllResult {
    * policy is adjusted or the change is handled individually.
    */
   blocked: { id: string; message: string }[]
+  /**
+   * 4.5 Safe Apply:通过 Prepare 预检、进入 Commit 阶段的待审变更数
+   * (冲突/deny 在写盘前已从该数中排除)。
+   */
+  prepared: number
+}
+
+/** 4.7 Change Analytics:轻量统计(不是监控平台)。 */
+export interface ChangeAnalytics {
+  /** 时间窗内触及的文件数(去重)。 */
+  files: number
+  /** 成功应用数。 */
+  applied: number
+  /** 失败数。 */
+  failed: number
+  /** 成功率百分比(0-100)。 */
+  successRate: number
+  /** 回滚数。 */
+  rollbacks: number
+  /** 高频修改文件 Top N。 */
+  topFiles: { path: string; count: number }[]
 }
 
 /** 状态机唯一事实源(3.x):见 `models/ChangeState.ts`(host/client 共用)。 */
@@ -386,6 +407,27 @@ export class ChangeService extends Service {
     return change
   }
 
+  /**
+   * 4.6 Conflict Center — 用户明确选择的版本写入磁盘(force,跳过守卫):
+   * 采用 Agent / 保留我的(拒绝)/ 合并文本都经此落地。写入前更新 after 与 diff,
+   * 使 rollback 语义与「用户编辑后应用」一致。
+   */
+  async resolve(id: string, content: string): Promise<ApplyResult> {
+    const change = this.changes.get(id)
+    if (change === undefined) {
+      return { kind: 'error', message: `unknown change "${id}"` }
+    }
+    if (change.status === 'applied') {
+      return { kind: 'error', message: `change "${id}" is already applied` }
+    }
+    change.after = content
+    change.diff = renderUnified(change.before, change.after)
+    change.updatedAt = Date.now()
+    this.persist()
+    // force:用户已在冲突中心明确选择,不再需要守卫。
+    return this.apply(id, true)
+  }
+
   /** Approve every pending change in a session. */
   approveAll(sessionId: string): FileChange[] {
     const updated: FileChange[] = []
@@ -429,9 +471,12 @@ export class ChangeService extends Service {
    *   (Vibe UI 「仍然全部应用」); mirrors the single-change `apply(force)`.
    */
   async acceptAllAndApply(sessionId: string, force = false): Promise<AcceptAllResult> {
-    const result: AcceptAllResult = { approved: [], applied: [], skipped: [], superseded: [], failed: [], blocked: [] }
+    const result: AcceptAllResult = { approved: [], applied: [], skipped: [], superseded: [], failed: [], blocked: [], prepared: 0 }
     const seenPaths = new Set<string>()
     const policies = this.ctx.get('policies')
+    const applyEngine: ApplyService | undefined = this.ctx.get('applyEngine')
+    const pendingList: FileChange[] = []
+    // Phase A — Prepare:去重、跳过、策略、hash 预检全部先做完,任何冲突在写盘前暴露。
     for (const change of this.listBySession(sessionId)) {
       if (seenPaths.has(change.path)) {
         result.superseded.push(change.id)
@@ -450,6 +495,28 @@ export class ChangeService extends Service {
           continue
         }
       }
+      // 4.5:文件变更先 preview(不写盘);冲突直接标记 failed,不进入执行。
+      if (change.kind === 'file' && applyEngine !== undefined) {
+        const preview = await applyEngine.preview(change, force)
+        if (preview.kind === 'conflict') {
+          this.transition(change.id, 'failed')
+          this.ctx.emit('change.updated', change, 'external modification detected')
+          result.failed.push({
+            id: change.id,
+            message: `external modification detected (current ${preview.currentHash.slice(0, 8)} ≠ expected ${preview.beforeHash.slice(0, 8)})`,
+          })
+          continue
+        }
+        if (preview.kind === 'error') {
+          result.failed.push({ id: change.id, message: preview.message })
+          continue
+        }
+      }
+      pendingList.push(change)
+    }
+    result.prepared = pendingList.length
+    // Phase B — Commit:只执行通过预检的变更(approve → snapshot → apply)。
+    for (const change of pendingList) {
       const approval = this.approve(change.id)
       if (isActionError(approval)) {
         // Should not happen (pending → approved is legal), but never crash.
@@ -468,5 +535,38 @@ export class ChangeService extends Service {
       }
     }
     return result
+  }
+
+  /**
+   * 4.7 Change Analytics:在持久化的变更存储上做轻量聚合
+   * (`windowMs` 省略 = 全部历史;如 7 天)。
+   */
+  analytics(windowMs?: number): ChangeAnalytics {
+    const cutoff = windowMs !== undefined ? Date.now() - windowMs : 0
+    const files = new Set<string>()
+    let applied = 0
+    let failed = 0
+    let rollbacks = 0
+    const fileCounts = new Map<string, number>()
+    for (const change of this.list()) {
+      if (change.kind !== 'file' || change.createdAt < cutoff) continue
+      files.add(change.path)
+      if (change.status === 'applied') applied++
+      else if (change.status === 'failed') failed++
+      else if (change.status === 'rolled_back') rollbacks++
+      fileCounts.set(change.path, (fileCounts.get(change.path) ?? 0) + 1)
+    }
+    const total = applied + failed
+    return {
+      files: files.size,
+      applied,
+      failed,
+      successRate: total > 0 ? Math.round((applied / total) * 100) : 0,
+      rollbacks,
+      topFiles: [...fileCounts.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([path, count]) => ({ path, count })),
+    }
   }
 }

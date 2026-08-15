@@ -90,6 +90,28 @@ export class ApplyService extends Service {
     return { kind: 'applied', operation: outcome.operation }
   }
 
+  /**
+   * 4.5 Safe Apply — Prepare 阶段:校验一个变更能否应用,但**不写入磁盘**。
+   * 返回 `{kind:'ok'}` 或冲突/错误结果(与 apply 的守卫完全一致)。
+   */
+  async preview(change: FileChange, force = false): Promise<ApplyResult | { kind: 'ok' }> {
+    const target = await this.resolve(change)
+    const current = await this.ctx.fs.stat(target)
+    const currentText = current !== undefined ? await this.ctx.fs.readText(target) : undefined
+    const conflict = this.guardConflict(change, currentText, current !== undefined, force)
+    return conflict !== undefined ? conflict : { kind: 'ok' }
+  }
+
+  /**
+   * 4.6 Conflict Center:读取磁盘当前版本(用于「Agent 版本 vs 当前版本」对比)。
+   */
+  async readCurrent(change: FileChange): Promise<{ exists: boolean; content: string | null }> {
+    const target = await this.resolve(change)
+    const info = await this.ctx.fs.stat(target)
+    if (info === undefined) return { exists: false, content: null }
+    return { exists: true, content: await this.ctx.fs.readText(target) }
+  }
+
   private async resolve(change: FileChange) {
     return this.ctx.fs.resolve(change.path, {
       cwd: change.cwd.length > 0 ? change.cwd : undefined,

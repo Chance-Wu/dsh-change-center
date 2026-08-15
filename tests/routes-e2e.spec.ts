@@ -32,13 +32,16 @@ import { AIFixService } from '../src/fix/AIFixService.ts'
 import { ReviewFixLoopService } from '../src/loop/ReviewFixLoopService.ts'
 
 let tempDir: string
+let homeDir: string
 let base: string
 let ctx: Context
 let port: number
 
 beforeAll(async () => {
   tempDir = mkdtempSync(join(tmpdir(), 'dsh-routes-e2e-'))
-  process.env.DSH_HOME = join(tempDir, 'dsh-home')
+  homeDir = mkdtempSync(join(tmpdir(), 'dsh-routes-home-'))
+  // DSH_HOME 独立于 git workspace,避免 git add 遍历到 JSONL 原子写的暂存文件。
+  process.env.DSH_HOME = homeDir
 
   ctx = new Context()
   await ctx.plugin(LocalFileSystem, { cwd: tempDir })
@@ -195,6 +198,39 @@ describe('risk route (key mapping)', () => {
     const risk = (body as { risk: { level: string; reasons: { rule: string }[] } }).risk
     expect(risk.level).toBe('high')
     expect(risk.reasons.some(r => r.rule === 'sensitive-path')).toBe(true)
+  })
+})
+
+describe('git write routes (add/commit over HTTP)', () => {
+  it('stages and commits through the session route', async () => {
+    const { execSync } = await import('node:child_process')
+    execSync('git init -q', { cwd: tempDir })
+
+    execSync('git config user.email t@e.com', { cwd: tempDir })
+    execSync('git config user.name T', { cwd: tempDir })
+    const { writeFileSync } = await import('node:fs')
+    writeFileSync(join(tempDir, 'tracked.txt'), 'one\n')
+    execSync('git add tracked.txt && git commit -qm init', { cwd: tempDir })
+    writeFileSync(join(tempDir, 'newfile.txt'), 'two\n')
+
+    const agentKey = `e2e-git-${Date.now()}`
+    ctx.changeCenter.record({
+      sessionId: agentKey, cwd: tempDir, kind: 'file',
+      path: join(tempDir, 'newfile.txt'), operation: 'create', before: null, after: 'two\n',
+      source: 'agent', toolName: 'write',
+    })
+    const sessionId = ctx.changeSessions.list()[0]!.id
+
+    const add = await postJson(`/sessions/${sessionId}/git/add`)
+    expect(add.status).toBe(200)
+    expect((add.body as { ok: boolean }).ok).toBe(true)
+
+    const commit = await postJson(`/sessions/${sessionId}/git/commit`, { message: 'e2e commit' })
+    expect(commit.status).toBe(200)
+    expect((commit.body as { ok: boolean }).ok).toBe(true)
+
+    const badCommit = await postJson(`/sessions/${sessionId}/git/commit`, {})
+    expect((badCommit.body as { ok: boolean }).ok).toBe(false)
   })
 })
 

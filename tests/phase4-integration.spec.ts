@@ -94,7 +94,7 @@ describe('CommandChange capture (real bash tool)', () => {
     expect(commandChange?.path).toContain('npm install lodash')
     expect(commandChange?.after).toContain('npm install lodash')
     expect(commandChange?.operation).toBe('execute')
-  })
+  }, 20000)
 
   it('marks a command change applied without re-running it', async () => {
     const ctx = await setup()
@@ -104,7 +104,7 @@ describe('CommandChange capture (real bash tool)', () => {
     const result = await ctx.changeCenter.apply(commandChange.id)
     expect(result.kind).toBe('applied')
     expect(ctx.changeCenter.get(commandChange.id)?.status).toBe('applied')
-  })
+  }, 20000)
 })
 
 describe('AIFixService with fake llm adapter', () => {

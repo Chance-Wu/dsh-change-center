@@ -109,7 +109,7 @@ type Parsed =
   | { kind: 'session'; id: string }
   | { kind: 'session-changes'; id: string }
   | { kind: 'session-action'; id: string; action: 'accept-all' | 'reject-all' | 'accept-all-apply' | 'rollback-all' }
-  | { kind: 'git'; id: string; action: 'status' | 'diff' | 'log' }
+  | { kind: 'git'; id: string; action: 'status' | 'diff' | 'log' | 'add' | 'commit' | 'push' }
   | { kind: 'verification'; id: string; action: 'run' | 'list' }
   | { kind: 'review'; id: string; action: 'run' | 'get' }
   | { kind: 'risk'; id: string; action: 'analyze' | 'get' }
@@ -124,8 +124,11 @@ type Parsed =
   | { kind: 'policies'; action: 'list' | 'create' }
   | { kind: 'policy'; id: string; action: 'update' | 'delete' }
   | { kind: 'changes' }
+  | { kind: 'analytics' }
   | { kind: 'change'; id: string }
   | { kind: 'change-action'; id: string; action: 'approve' | 'reject' | 'apply' | 'rollback' | 'edit' | 'repend' }
+  | { kind: 'change-current'; id: string }
+  | { kind: 'change-resolve'; id: string }
   | { kind: 'not-found' }
 
 /** One compiled route rule: anchored regex over the path after the prefix. */
@@ -145,7 +148,7 @@ const ROUTE_RULES: RouteRule[] = [
   { re: /^\/sessions\/([^/]+)$/, build: m => ({ kind: 'session', id: m[1]! }) },
   { re: /^\/sessions\/([^/]+)\/changes$/, build: m => ({ kind: 'session-changes', id: m[1]! }) },
   { re: /^\/sessions\/([^/]+)\/(accept-all|reject-all|accept-all-apply|rollback-all)$/, build: m => ({ kind: 'session-action', id: m[1]!, action: m[2] as 'accept-all' | 'reject-all' | 'accept-all-apply' | 'rollback-all' }) },
-  { re: /^\/sessions\/([^/]+)\/git\/?(diff|log|status)?$/, build: m => ({ kind: 'git', id: m[1]!, action: (m[2] ?? 'status') as 'status' | 'diff' | 'log' }) },
+  { re: /^\/sessions\/([^/]+)\/git\/?(diff|log|status|add|commit|push)?$/, build: m => ({ kind: 'git', id: m[1]!, action: (m[2] ?? 'status') as 'status' | 'diff' | 'log' | 'add' | 'commit' | 'push' }) },
   { re: /^\/sessions\/([^/]+)\/verification\/?(run)?$/, build: m => ({ kind: 'verification', id: m[1]!, action: (m[2] ?? 'list') as 'run' | 'list' }) },
   { re: /^\/sessions\/([^/]+)\/review\/?(run)?$/, build: m => ({ kind: 'review', id: m[1]!, action: (m[2] ?? 'get') as 'run' | 'get' }) },
   { re: /^\/sessions\/([^/]+)\/risk\/?(analyze)?$/, build: m => ({ kind: 'risk', id: m[1]!, action: (m[2] ?? 'get') as 'analyze' | 'get' }) },
@@ -158,8 +161,11 @@ const ROUTE_RULES: RouteRule[] = [
   { re: /^\/jobs\/([^/]+)\/cancel$/, build: m => ({ kind: 'job-action', id: m[1]!, action: 'cancel' }) },
   { re: /^\/events\/?$/, build: () => ({ kind: 'events' }) },
   { re: /^\/changes\/?$/, build: () => ({ kind: 'changes' }) },
+  { re: /^\/analytics\/?$/, build: () => ({ kind: 'analytics' }) },
   { re: /^\/changes\/([^/]+)$/, build: m => ({ kind: 'change', id: m[1]! }) },
   { re: /^\/changes\/([^/]+)\/(approve|reject|apply|rollback|edit|repend)$/, build: m => ({ kind: 'change-action', id: m[1]!, action: m[2] as 'approve' | 'reject' | 'apply' | 'rollback' | 'edit' | 'repend' }) },
+  { re: /^\/changes\/([^/]+)\/current$/, build: m => ({ kind: 'change-current', id: m[1]! }) },
+  { re: /^\/changes\/([^/]+)\/resolve$/, build: m => ({ kind: 'change-resolve', id: m[1]! }) },
 ]
 
 /** Parse a change-center pathname into a {@link Parsed} route. */
@@ -179,11 +185,14 @@ function isReadRoute(parsed: Parsed): boolean {
     case 'session':
     case 'session-changes':
     case 'changes':
+    case 'analytics':
     case 'change':
+    case 'change-current':
     case 'history':
       return true
     case 'git':
-      return true
+      // status/diff/log 是只读 GET;add/commit/push 是用户显式触发的写操作。
+      return parsed.action === 'status' || parsed.action === 'diff' || parsed.action === 'log'
     case 'verification':
       return parsed.action === 'list'
     case 'review':
@@ -283,6 +292,12 @@ async function dispatch(
       const all = ctx.changeCenter.list()
       return { changes: paginate(all, url), total: all.length }
     }
+    case 'analytics': {
+      // 4.7:轻量统计(默认 7 天窗口;`?window=0` 为全部历史)。
+      const raw = url.searchParams.get('window')
+      const windowMs = raw === null ? 7 * 24 * 60 * 60 * 1000 : Number(raw)
+      return { analytics: ctx.changeCenter.analytics(Number.isFinite(windowMs) && windowMs > 0 ? windowMs : undefined) }
+    }
     case 'change':
       return ctx.changeCenter.get(parsed.id) ?? { error: `unknown change "${parsed.id}"` }
     case 'change-action': {
@@ -306,6 +321,22 @@ async function dispatch(
         }
       }
     }
+    case 'change-current': {
+      // 4.6 Conflict Center:读取磁盘当前版本。
+      const change = ctx.changeCenter.get(parsed.id)
+      if (change === undefined) return { error: `unknown change "${parsed.id}"` }
+      const applyEngine = ctx.get('applyEngine')
+      if (applyEngine === undefined) return { current: null, exists: false }
+      return applyEngine.readCurrent(change)
+    }
+    case 'change-resolve': {
+      // 4.6 Conflict Center:写入用户明确选择的版本(force)。
+      const { content } = (body ?? {}) as { content?: unknown }
+      if (typeof content !== 'string') {
+        return { error: 'resolve requires a string `content` body field' }
+      }
+      return ctx.changeCenter.resolve(parsed.id, content)
+    }
     case 'git': {
       const session = ctx.changeSessions.get(parsed.id)
       if (session === undefined) return { error: `unknown session "${parsed.id}"` }
@@ -319,6 +350,25 @@ async function dispatch(
         }
         case 'diff': return ctx.git.diff(session.workspace)
         case 'log': return ctx.git.log(session.workspace)
+        case 'add': {
+          const { paths } = (body ?? {}) as { paths?: string[] }
+          return await ctx.git.add(session.workspace, Array.isArray(paths) ? paths.filter((p): p is string => typeof p === 'string') : undefined)
+        }
+        case 'commit': {
+          const { message } = (body ?? {}) as { message?: unknown }
+          if (typeof message !== 'string') {
+            return { ok: false, error: 'commit requires a string `message` body field' }
+          }
+          return await ctx.git.commit(session.workspace, message)
+        }
+        case 'push': {
+          const { remote, branch } = (body ?? {}) as { remote?: unknown; branch?: unknown }
+          return await ctx.git.push(
+            session.workspace,
+            typeof remote === 'string' && remote.length > 0 ? remote : 'origin',
+            typeof branch === 'string' && branch.length > 0 ? branch : undefined,
+          )
+        }
       }
     }
     case 'verification': {

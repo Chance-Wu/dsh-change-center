@@ -165,8 +165,8 @@ describe('B + C. Apply / Rollback 契约(真实文件系统)', () => {
     const id = recordFile(ctx, 'rollback-1', target)
     await ctx.changeCenter.apply(id)
     expect(ctx.changeCenter.get(id)?.status).toBe('applied')
-    // 删除快照模拟丢失。
-    const snapRoot = join(process.env.DSH_HOME!, 'change-center', 'snapshots', 'rollback-1', id)
+    // 删除快照 marker(4.2 新布局)模拟丢失。
+    const snapRoot = join(process.env.DSH_HOME!, 'change-center', 'snapshots', 'changes', 'rollback-1', id)
     rmSync(snapRoot, { recursive: true, force: true })
     const outcome = await ctx.changeCenter.rollback(id)
     expect(outcome.kind).toBe('missing-snapshot')

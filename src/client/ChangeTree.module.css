@@ -1,10 +1,10 @@
 /* ChangeTree：文件树卡片样式，只引用设计 token。 */
 .tree {
-  flex: 0 0 250px;
+  flex: 0 0 clamp(220px, 22%, 280px);
   max-height: 480px;
   overflow: auto;
   border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 10px;
+  border-radius: 12px;
   background: var(--dsw-alias-bg-layer-2);
   padding: 6px;
   min-width: 0;
@@ -38,6 +38,63 @@
   border: 1px solid var(--dsw-alias-border-l1);
 }
 
+/* 4.x:过滤栏(搜索 / 操作 / 路径前缀) */
+.filters {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 2px 8px;
+  border-bottom: 1px solid var(--dsw-alias-border-l1);
+  margin-bottom: 4px;
+}
+
+.filterInput {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  font-size: var(--dsw-font-xxs-12);
+  font-family: inherit;
+  padding: 4px 8px;
+}
+.filterInput:focus {
+  outline: none;
+  border-color: var(--dsw-alias-state-business-primary);
+  box-shadow: 0 0 0 1px var(--dsw-alias-state-business-primary);
+}
+
+.opToggles {
+  display: flex;
+  gap: 4px;
+}
+
+.opToggle {
+  flex: 1;
+  border: 1px solid var(--dsw-alias-border-l2);
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: var(--dsw-font-xxxs-11);
+  font-family: inherit;
+  font-weight: 700;
+  padding: 2px 0;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 100ms ease, color 100ms ease;
+}
+.opToggleOn {
+  composes: opToggle;
+  background: var(--dsw-alias-interactive-bg-active);
+  color: var(--dsw-alias-label-primary);
+  border-color: var(--dsw-alias-state-business-primary);
+}
+
+/* 4.x:窗口化渲染占位容器 */
+.windowWrap {
+  min-width: 0;
+}
+
 /* 目录行：可折叠按钮 */
 .dirRow {
   display: flex;
@@ -64,7 +121,8 @@
   overflow: hidden;
   text-overflow: ellipsis;
   min-width: 0;
-  font-weight: 500;
+  font-weight: 600;
+  color: var(--dsw-alias-label-secondary);
 }
 
 /* 目录展开/折叠 chevron（旋转动画） */
@@ -83,23 +141,24 @@
   opacity: 0.7;
 }
 
-/* 文件行：hover / 选中状态 */
+/* 文件行：hover / 选中状态（4.x 审美:更清晰的行与过渡） */
 .fileRow {
   display: flex;
   align-items: center;
   gap: 6px;
   width: 100%;
-  padding: 4px 6px;
+  padding: 5px 8px;
   font-size: var(--dsw-font-xxs-12);
   font-family: inherit;
   text-align: left;
   border: none;
   background: transparent;
-  border-radius: 6px;
+  border-radius: 8px;
   cursor: pointer;
   color: var(--dsw-alias-label-primary);
   white-space: nowrap;
   overflow: hidden;
+  transition: background 100ms ease, box-shadow 100ms ease;
 }
 .fileRow:hover {
   background: var(--dsw-alias-interactive-bg-hover);
@@ -297,22 +356,44 @@
   color: var(--dsw-alias-label-tertiary);
   font-size: var(--dsw-font-xxxs-11);
   font-family: inherit;
-  padding: 1px 5px;
-  border-radius: 4px;
+  padding: 1px 6px;
+  border-radius: 6px;
   cursor: pointer;
 }
 .actionMore:hover {
   color: var(--dsw-alias-label-primary);
 }
 
-.actionApprove {
+.actionAccept {
   border: 1px solid var(--dsw-alias-state-success-primary);
   background: transparent;
   color: var(--dsw-alias-state-success-primary);
   font-size: var(--dsw-font-xxxs-11);
   font-family: inherit;
-  padding: 1px 6px;
-  border-radius: 4px;
+  padding: 1px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.actionApply {
+  border: 1px solid var(--dsw-alias-state-business-primary);
+  background: transparent;
+  color: var(--dsw-alias-state-business-primary);
+  font-size: var(--dsw-font-xxxs-11);
+  font-family: inherit;
+  padding: 1px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.actionGhost {
+  border: 1px solid var(--dsw-alias-border-l2);
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font-size: var(--dsw-font-xxxs-11);
+  font-family: inherit;
+  padding: 1px 8px;
+  border-radius: 6px;
   cursor: pointer;
 }
 
@@ -322,7 +403,57 @@
   color: var(--dsw-alias-state-error-primary);
   font-size: var(--dsw-font-xxxs-11);
   font-family: inherit;
-  padding: 1px 6px;
-  border-radius: 4px;
+  padding: 1px 8px;
+  border-radius: 6px;
   cursor: pointer;
+}
+
+/* 加载骨架行 */
+.skeleton {
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.skeletonRow {
+  height: 14px;
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-skeleton);
+  animation: skeletonPulse 1.4s ease-in-out infinite;
+}
+@keyframes skeletonPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeletonRow {
+    animation: none;
+  }
+}
+
+/* 4.x 每文件风险 chip(轻量启发,与 RiskService 规则同源) */
+.riskChip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  height: 16px;
+  padding: 0 5px;
+  border-radius: 6px;
+  font-size: var(--dsw-font-xxxs-11);
+  font-weight: 600;
+}
+.riskLow {
+  composes: riskChip;
+  color: var(--dsw-alias-state-success-primary);
+  background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 10%, transparent);
+}
+.riskMedium {
+  composes: riskChip;
+  color: var(--dsw-alias-state-warn-primary);
+  background: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 12%, transparent);
+}
+.riskHigh {
+  composes: riskChip;
+  color: var(--dsw-alias-state-error-primary);
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, transparent);
 }

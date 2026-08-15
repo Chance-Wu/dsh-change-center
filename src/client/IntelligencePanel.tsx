@@ -11,8 +11,9 @@
  */
 
 import { createElement, useEffect, useRef, useState, type ReactElement } from 'react'
-import type { ChangeCenterApi, GitResponse, JobHandle, WireChange, WireHistoryEvent, WireReview, WireRisk, WireVerificationTask } from './index.ts'
+import type { ChangeCenterApi, GitResponse, JobHandle, WireAnalytics, WireChange, WireHistoryEvent, WireReview, WireRisk, WireVerificationTask } from './index.ts'
 import { PolicyPanel } from './PolicyPanel.tsx'
+import { TimelineView } from './TimelineView.tsx'
 import { LOOP_STOPPED_ZH, RISK_ZH, SEVERITY_ZH } from './i18n.ts'
 import { RiskSignal, type SignalLevel } from './RiskSignal.tsx'
 import baseCss from './styles.module.css'
@@ -28,18 +29,13 @@ export interface IntelligencePanelProps {
   changes?: WireChange[]
   /** Called when a finding row is clicked: locate the change in the surface. */
   onLocate?: (changeId: string) => void
-}
-
-const RISK_COLOR: Record<string, string> = {
-  low: 'var(--dsw-alias-state-success-primary)',
-  medium: 'var(--dsw-alias-state-warn-primary)',
-  high: 'var(--dsw-alias-state-warn-primary)',
-  critical: 'var(--dsw-alias-state-error-primary)',
+  /** 4.1:会话事件序列(面板已取;缺省时本组件自行拉取)。 */
+  timeline?: WireHistoryEvent[]
 }
 
 /** Right-column intelligence cards. */
 export function IntelligencePanel(props: IntelligencePanelProps): ReactElement {
-  const { sessionId, workspace, api, onChanged, changes = [], onLocate } = props
+  const { sessionId, workspace, api, onChanged, changes = [], onLocate, timeline: timelineProp } = props
   const [git, setGit] = useState<GitResponse | null>(null)
   const [review, setReview] = useState<WireReview | null>(null)
   const [risk, setRisk] = useState<WireRisk | null>(null)
@@ -122,8 +118,8 @@ export function IntelligencePanel(props: IntelligencePanelProps): ReactElement {
         createElement('button', { onClick: () => retryRef.current?.(), className: baseCss.buttonMini }, '重试'),
       )
       : null,
-    // 3.2.4:More 信息架构 —— 分组收纳,默认全部折叠。
-    createElement(Group, { title: '智能分析' },
+    // 分组收纳:核心组(智能分析/验证)默认展开,次要组折叠。
+    createElement(Group, { title: '智能分析', defaultOpen: true },
       createElement(ReviewCard, {
         review, busy, onRun: () => run(() => api.reviewRun(sessionId)),
         onLocate: onLocate,
@@ -142,13 +138,17 @@ export function IntelligencePanel(props: IntelligencePanelProps): ReactElement {
       }),
       createElement(RiskCard, { risk, busy, onAnalyze: () => run(() => api.riskAnalyze(sessionId)) }),
     ),
-    createElement(Group, { title: '验证' },
+    createElement(Group, { title: '验证', defaultOpen: true },
       createElement(VerificationCard, { tasks: verification, busy, onRun: () => run(() => api.verificationRun(sessionId)) }),
     ),
     createElement(Group, { title: '开发' },
       createElement(GitCard, { git, workspace }),
       createElement(PolicyPanel, { sessionId, api, onChanged }),
-      createElement(TimelineCard, { events: timeline }),
+      createElement(TimelineCard, { events: timelineProp ?? timeline, changes }),
+    ),
+    // 4.7 Change Analytics:轻量统计(7 天窗口)。
+    createElement(Group, { title: '统计' },
+      createElement(AnalyticsCard, { api }),
     ),
     createElement(Group, { title: '修复' },
       createElement('div', { className: css.loopRow },
@@ -162,13 +162,14 @@ export function IntelligencePanel(props: IntelligencePanelProps): ReactElement {
   )
 }
 
-/** 3.2.4:分组折叠容器(默认收起,点击标题展开)。 */
-function Group(props: { title: string; children?: ReactElement | ReactElement[] }): ReactElement {
-  const [expanded, setExpanded] = useState(false)
+/** 分组折叠容器:核心组默认展开,点击标题切换;组本身无边框(内嵌卡片自带)。 */
+function Group(props: { title: string; defaultOpen?: boolean; children?: ReactElement | ReactElement[] }): ReactElement {
+  const [expanded, setExpanded] = useState(props.defaultOpen ?? false)
   return createElement('div', { className: css.group },
     createElement('button', {
       onClick: () => setExpanded(!expanded),
       className: css.groupTitle,
+      'aria-expanded': expanded,
     }, `${expanded ? '▾' : '▸'} ${props.title}`),
     expanded ? createElement('div', { className: css.groupBody }, props.children) : null,
   )
@@ -178,6 +179,32 @@ function card(title: string, children: ReactElement | ReactElement[] | string): 
   return createElement('div', { className: baseCss.card },
     createElement('div', { className: baseCss.cardTitle }, title),
     createElement('div', { className: css.cardBody }, children),
+  )
+}
+
+/** 4.7:轻量统计卡(7 天窗口)。 */
+function AnalyticsCard(props: { api: ChangeCenterApi }): ReactElement {
+  const { api } = props
+  const [data, setData] = useState<WireAnalytics | null>(null)
+  useEffect(() => {
+    api.analytics().then(setData).catch(() => setData(null))
+  }, [])
+  return card('变更统计',
+    data === null
+      ? createElement('div', { className: baseCss.muted }, '暂无数据')
+      : createElement('div', { className: css.smallText },
+        createElement('div', null, '近 7 天 · Agent 修改 ', createElement('b', null, `${data.files}`), ' 个文件'),
+        createElement('div', null, '成功应用 ', createElement('b', null, `${data.applied}`), ' 次 · 成功率 ', createElement('b', null, `${data.successRate}%`), ` · 回滚 ${data.rollbacks}`),
+        data.topFiles.length > 0
+          ? createElement('div', { className: css.cardBodyTight },
+            createElement('div', { className: `${baseCss.muted} ${css.cardBodyTight}` }, '高频修改:'),
+            data.topFiles.map(item => createElement('div', { key: item.path, className: css.gitEntry },
+              createElement('span', { className: css.gitEntryPath }, item.path),
+              createElement('span', { className: css.gitEntryCode }, `×${item.count}`),
+            )),
+          )
+          : null,
+      ),
   )
 }
 
@@ -191,7 +218,7 @@ function GitCard(props: { git: GitResponse | null; workspace: string }): ReactEl
       ? createElement('div', { className: baseCss.muted }, '不是 Git 仓库')
       : createElement('div', { className: css.smallText },
         createElement('div', null, '分支：', createElement('b', null, repo && 'branch' in repo ? repo.branch : '—')),
-        createElement('div', null, 'HEAD：', createElement('b', null, repo && 'head' in repo ? repo.head : '—')),
+        createElement('div', null, '提交：', createElement('b', null, repo && 'head' in repo ? repo.head : '—')),
         createElement('div', null, repo && 'dirty' in repo ? (repo.dirty ? '● 有未提交修改' : '○ 干净') : ''),
         entries.length > 0
           ? createElement('div', { className: css.gitEntries },
@@ -232,11 +259,11 @@ function ReviewCard(props: {
 }): ReactElement {
   const { review, busy, onRun, onFix, onLocate, changes } = props
   const findings = review?.findings ?? []
-  return card('AI 审查',
+  return card('AI 摘要',
     createElement('div', null,
       // 按需增强(V-6):未审查 → 「Review changes」CTA;已审查 → 「重新审查」。
       createElement('button', { onClick: onRun, disabled: busy, className: baseCss.buttonGhost },
-        busy ? 'AI 审查中…' : review === null ? 'Review changes' : '重新审查'),
+        busy ? 'AI 审查中…' : review === null ? '运行审查' : '重新审查'),
       review === null
         ? createElement('div', { className: `${baseCss.muted} ${css.cardBody}` }, '点击运行 AI 审查,结果为辅助信息,不改变变更状态')
         : createElement('div', { className: css.cardBody },
@@ -244,6 +271,18 @@ function ReviewCard(props: {
             createElement(RiskSignal, { level: riskSignalLevel(review.risk), hint: `AI 审查风险：${RISK_ZH[review.risk] ?? review.risk}` }),
             createElement('span', { className: `${baseCss.muted} ${css.cardBodyTight}` },
               findings.length === 0 ? '✓ 未发现明显问题' : `${findings.length} 条发现`),
+          ),
+          // 4.x:AI 置信度 + 建议动作(Linear/Raycast 风格)。
+          createElement('div', { className: css.confidenceRow },
+            createElement('span', { className: css.confidenceLabel }, 'AI 置信度'),
+            createElement('div', { className: css.confidenceBar },
+              createElement('div', { className: css.confidenceFill, style: { width: `${clampScore(review.score)}%` } }),
+            ),
+            createElement('span', { className: css.confidenceValue }, `${clampScore(review.score)}%`),
+          ),
+          createElement('div', { className: css.suggestRow },
+            createElement('span', { className: css.suggestTag }, '建议'),
+            createElement('span', { className: css.suggestText }, suggestAction(review.risk)),
           ),
           review.summary.length > 0
             ? createElement('div', { className: `${baseCss.muted} ${css.cardBodyTight}` }, review.summary)
@@ -276,6 +315,21 @@ function ReviewCard(props: {
         ),
     ),
   )
+}
+
+/** 4.x 建议动作:按风险等级给出下一步(辅助决策,不阻断)。 */
+function suggestAction(risk: string): string {
+  switch (risk) {
+    case 'critical': return '建议逐条确认，高风险项可拒绝'
+    case 'high': return '建议确认风险后再应用'
+    case 'medium': return '建议逐条确认后应用'
+    default: return '可以全部应用'
+  }
+}
+
+/** 0-100 收敛(置信度/评分展示用)。 */
+function clampScore(score: number): number {
+  return Math.max(0, Math.min(100, Math.round(score)))
 }
 
 /** Map a finding's severity to the three-level signal. */
@@ -361,32 +415,13 @@ function statusZh(status: string): string {
   }
 }
 
-function TimelineCard(props: { events: WireHistoryEvent[] }): ReactElement {
-  const { events } = props
+function TimelineCard(props: { events: WireHistoryEvent[]; changes: WireChange[] }): ReactElement {
+  const { events, changes } = props
   return card('时间线',
-    events.length === 0
-      ? createElement('div', { className: baseCss.muted }, '暂无事件')
-      : createElement('div', { className: css.timelineList },
-        events.map(event => createElement('div', { key: event.id, className: css.timelineRow },
-          createElement('span', { className: css.timelineTime }, timeOf(event.timestamp)),
-          ` ${event.actor === 'agent' ? '代理' : event.actor === 'user' ? '用户' : '系统'} ${eventTypeZh(event.type)}`,
-        )),
-      ),
+    createElement('div', { className: css.timelineList },
+      createElement(TimelineView, { events, changes }),
+    ),
   )
-}
-
-function eventTypeZh(type: string): string {
-  switch (type) {
-    case 'created': return '创建'
-    case 'reviewed': return '审查'
-    case 'approved': return '批准'
-    case 'rejected': return '拒绝'
-    case 'applied': return '应用'
-    case 'verified': return '验证'
-    case 'rolled_back': return '回滚'
-    case 'committed': return '提交'
-    default: return type
-  }
 }
 
 function statusIcon(status: string): string {
@@ -404,11 +439,4 @@ function statusColor(status: string): Record<string, string> {
     case 'failed': return { color: 'var(--dsw-alias-state-error-primary)' }
     default: return { color: 'var(--dsw-alias-label-tertiary)' }
   }
-}
-
-function timeOf(timestamp: number): string {
-  const date = new Date(timestamp)
-  const hh = String(date.getHours()).padStart(2, '0')
-  const mm = String(date.getMinutes()).padStart(2, '0')
-  return `${hh}:${mm}`
 }

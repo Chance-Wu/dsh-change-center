@@ -84,6 +84,20 @@ export interface GitResponse {
   diff?: string
 }
 
+/** Wire shape of the git log (short hash + subject lines). */
+export interface GitLogResponse {
+  entries?: string[]
+  error?: string
+}
+
+/** Wire shape of a git write operation (add/commit/push). */
+export interface GitActionResult {
+  ok: boolean
+  error?: string
+  hash?: string
+  added?: number
+}
+
 /** Wire shape of a verification task — the host {@link VerificationTask}. */
 export type WireVerificationTask = VerificationTask
 
@@ -124,8 +138,18 @@ export type WireFixRequest = FixRequest
 /** Wire shape of a fix result — the host {@link FixResult}. */
 export type WireFixResult = FixResult
 
-/** Wire shape of a background job — the host {@link Job}. */
+/** Wire shape of the background job — the host {@link Job}. */
 export type WireJob = Job
+
+/** 4.7 Wire shape of the lightweight analytics — host {@link ChangeAnalytics}. */
+export interface WireAnalytics {
+  files: number
+  applied: number
+  failed: number
+  successRate: number
+  rollbacks: number
+  topFiles: { path: string; count: number }[]
+}
 
 /** A subscription handle; call it to stop receiving events. */
 export type Unsubscribe = () => void
@@ -145,18 +169,27 @@ export interface WirePage<T> {
 /** Minimal API surface the section consumes. */
 export interface ChangeCenterApi {
   listChanges(params?: PageParams): Promise<WirePage<WireChange>>
+  /** 4.7:轻量统计(默认 7 天)。 */
+  analytics(): Promise<WireAnalytics>
   listSessions(params?: PageParams): Promise<WirePage<WireSession>>
   sessionChanges(sessionId: string, params?: PageParams): Promise<WirePage<WireChange>>
   changeAction(id: string, action: 'approve' | 'reject' | 'rollback' | 'repend'): Promise<ActionResult>
   applyChange(id: string, force?: boolean): Promise<ActionResult>
   editChange(id: string, after: string): Promise<unknown>
+  /** 4.6:读取磁盘当前版本(冲突中心对比用)。 */
+  changeCurrent(id: string): Promise<{ exists: boolean; content: string | null }>
+  /** 4.6:写入用户明确选择的版本(冲突解决)。 */
+  resolveChange(id: string, content: string): Promise<ActionResult>
   sessionAction(sessionId: string, action: 'accept-all' | 'reject-all'): Promise<{ updated: string[] }>
   /** 全部接收并应用;force 时绕过 deny 门禁与外部修改守卫(「仍然全部应用」)。 */
   acceptAllAndApply(sessionId: string, force?: boolean): Promise<WireAcceptAllResult>
   rollbackAll(sessionId: string): Promise<WireRollbackAllResult>
   gitStatus(sessionId: string): Promise<GitResponse>
   gitDiff(sessionId: string): Promise<GitResponse>
-  gitLog(sessionId: string): Promise<GitResponse>
+  gitLog(sessionId: string): Promise<GitLogResponse>
+  gitAdd(sessionId: string, paths?: string[]): Promise<GitActionResult>
+  gitCommit(sessionId: string, message: string): Promise<GitActionResult>
+  gitPush(sessionId: string, remote?: string, branch?: string): Promise<GitActionResult>
   verificationList(sessionId: string): Promise<WireVerificationTask[]>
   verificationRun(sessionId: string): Promise<JobHandle<WireVerificationTask | undefined>>
   reviewGet(sessionId: string): Promise<WireReview | null>
@@ -203,6 +236,8 @@ export function apiOf(): ChangeCenterApi {
   return {
     listChanges: (params) => getJson(pageUrl('/api/change-center/changes', params))
       .then(body => toPage((body as { changes: WireChange[]; total: number }).changes, body as { total: number })),
+    analytics: () => getJson('/api/change-center/analytics')
+      .then(body => (body as { analytics: WireAnalytics }).analytics),
     listSessions: (params) => getJson(pageUrl('/api/change-center/sessions', params))
       .then(body => toPage((body as { sessions: WireSession[]; total: number }).sessions, body as { total: number })),
     sessionChanges: (sessionId, params) => getJson(pageUrl(`/api/change-center/sessions/${sessionId}/changes`, params))
@@ -212,6 +247,8 @@ export function apiOf(): ChangeCenterApi {
     applyChange: (id, force) =>
       postJson(`/api/change-center/changes/${id}/apply${force ? '?force=1' : ''}`).then(body => body as ActionResult),
     editChange: (id, after) => postJson(`/api/change-center/changes/${id}/edit`, { after }),
+    changeCurrent: (id) => getJson(`/api/change-center/changes/${id}/current`).then(body => body as { exists: boolean; content: string | null }),
+    resolveChange: (id, content) => postJson(`/api/change-center/changes/${id}/resolve`, { content }).then(body => body as ActionResult),
     sessionAction: (sessionId, action) =>
       postJson(`/api/change-center/sessions/${sessionId}/${action}`).then(body => body as { updated: string[] }),
     acceptAllAndApply: (sessionId, force) =>
@@ -220,7 +257,13 @@ export function apiOf(): ChangeCenterApi {
       postJson(`/api/change-center/sessions/${sessionId}/rollback-all`).then(body => (body as { result: WireRollbackAllResult }).result),
     gitStatus: (sessionId) => getJson(`/api/change-center/sessions/${sessionId}/git`).then(body => body as GitResponse),
     gitDiff: (sessionId) => getJson(`/api/change-center/sessions/${sessionId}/git/diff`).then(body => body as GitResponse),
-    gitLog: (sessionId) => getJson(`/api/change-center/sessions/${sessionId}/git/log`).then(body => body as GitResponse),
+    gitLog: (sessionId) => getJson(`/api/change-center/sessions/${sessionId}/git/log`).then(body => body as GitLogResponse),
+    gitAdd: (sessionId, paths) =>
+      postJson(`/api/change-center/sessions/${sessionId}/git/add`, paths !== undefined ? { paths } : {}).then(body => body as GitActionResult),
+    gitCommit: (sessionId, message) =>
+      postJson(`/api/change-center/sessions/${sessionId}/git/commit`, { message }).then(body => body as GitActionResult),
+    gitPush: (sessionId, remote, branch) =>
+      postJson(`/api/change-center/sessions/${sessionId}/git/push`, { remote, branch }).then(body => body as GitActionResult),
     verificationList: (sessionId) =>
       getJson(`/api/change-center/sessions/${sessionId}/verification`).then(body => (body as { tasks: WireVerificationTask[] }).tasks),
     verificationRun: (sessionId) => submitJobHandle(
