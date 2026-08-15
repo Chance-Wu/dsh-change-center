@@ -69,14 +69,14 @@ function actionError(error: unknown): ActionError {
 }
 
 /**
- * Result of {@link ChangeService.acceptAllAndApply}.
+ * Result of {@link ChangeService.applyAllPending}.
  *
  * The counters partition the session's changes into disjoint categories:
  * `applied + failed + blocked` = pending changes actually processed, `skipped`
  * = other non-pending changes, `superseded` = older writes to a path whose
  * newer change was processed.
  */
-export interface AcceptAllResult {
+export interface ApplyAllResult {
   /** Approved changes successfully applied (incl. command/external). */
   applied: string[]
   /** Changes skipped: not pending (already applied/rejected/approved). */
@@ -231,18 +231,6 @@ export class ChangeService extends Service {
   }
 
   /**
-   * Re-pend a rejected or rolled-back change so it can be reviewed again.
-   * Illegal transitions return a structured error.
-   */
-  repend(id: string): FileChange | ActionError {
-    try {
-      return this.transition(id, 'pending')
-    } catch (error) {
-      return actionError(error)
-    }
-  }
-
-  /**
    * Apply a change to the workspace: snapshot the pre-apply file, run the
    * apply engine's content-hash guard and atomic write, then transition.
    * Command/external changes are marked applied without re-running them.
@@ -333,7 +321,7 @@ export class ChangeService extends Service {
 
   /**
    * Roll back every APPLIED FILE change in a session (the counterpart to
-   * acceptAllAndApply). Command/external changes are approval markers — they
+   * applyAllPending). Command/external changes are markers — they
    * never wrote to the workspace, so there is nothing to restore and no
    * snapshot exists; they are skipped rather than reported as missing.
    * Failures and missing snapshots do not interrupt the rest.
@@ -399,10 +387,10 @@ export class ChangeService extends Service {
   }
 
   /**
-   * Accept-and-apply every pending change in a session: approve each pending
-   * change, then apply it (command/external changes are marked applied; file
-   * changes need the apply/snapshot engines). Failures do not interrupt the
-   * rest; already-applied or non-pending changes are reported as skipped.
+   * Apply every pending change in a session (「全部应用」). File changes go
+   * through the apply/snapshot engines; command/external changes are marked
+   * applied without re-running them. Failures do not interrupt the rest;
+   * already-applied or non-pending changes are reported as skipped.
    *
    * Changes are processed newest-first with one change per path: superseded
    * writes to the same file (the review surface shows only the latest) are
@@ -416,8 +404,8 @@ export class ChangeService extends Service {
    * @param force - bypass the deny gate and the external-modification guard
    *   (Vibe UI 「仍然全部应用」); mirrors the single-change `apply(force)`.
    */
-  async acceptAllAndApply(sessionId: string, force = false): Promise<AcceptAllResult> {
-    const result: AcceptAllResult = { applied: [], skipped: [], superseded: [], failed: [], blocked: [], prepared: 0 }
+  async applyAllPending(sessionId: string, force = false): Promise<ApplyAllResult> {
+    const result: ApplyAllResult = { applied: [], skipped: [], superseded: [], failed: [], blocked: [], prepared: 0 }
     const seenPaths = new Set<string>()
     const policies = this.ctx.get('policies')
     const applyEngine: ApplyService | undefined = this.ctx.get('applyEngine')

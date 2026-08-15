@@ -8,19 +8,19 @@
  * Vibe UI (2.1):
  * - V-1 默认第一屏 = 当前 Turn 卡片;Git/Review/Risk/Verification/History/Fix 全部收进 More。
  * - V-2 Focus(极简卡片)⇄ Review(展开审查)双模式。
- * - V-4 顶部固定 [✓ 全部应用] [拒绝];无风险一步到位 + toast Undo;有风险给
+ * - V-4 顶部固定 [✓ 全部应用] [↶ 回滚];无风险一步到位 + toast Undo;有风险给
  *   「⚠ … [查看] [仍然全部应用(force)]」轻确认,不弹复杂对话框。
  * - V-5 风险只显示 ✓/⚠/⛔ 三级信号 + hover 一句话,不显示数字评分。
  * - V-7 编辑器脏状态:未保存修改时切换文件先三选(保存并切换/放弃并切换/取消),
  *   且锁定 Apply/批量,保证应用的永远是用户看到的版本。
- * - V-8 状态视觉:applied=主成功态、failed=突出、rejected/rolled_back=弱化。
+ * - V-8 状态视觉:applied=主成功态、failed=突出、rolled_back=弱化。
  * - V-11 Issues 过滤器:全部 / 待处理 / 问题。
  * @module dsh-change-center/client
  */
 
 import { createElement, useEffect, useMemo, useState, type ReactElement } from 'react'
 import type {
-  ActionResult, ChangeCenterApi, GitActionResult, GitResponse, WireAcceptAllResult, WireChange, WireHistoryEvent, WirePolicyEvaluation, WirePolicyHit, WireReview, WireRisk,
+  ActionResult, ChangeCenterApi, GitActionResult, GitResponse, WireApplyAllResult, WireChange, WireHistoryEvent, WirePolicyEvaluation, WirePolicyHit, WireReview, WireRisk,
 } from './index.ts'
 import { ChangeTree, dedupeByPath, relativePath } from './ChangeTree.tsx'
 import type { DiffMode } from './DiffViewer.tsx'
@@ -85,20 +85,18 @@ interface WarnState {
 /** 4.x Task Capsule 状态:会话状态 + 变更状态派生(Linear/Raycast 风格)。 */
 interface CapsuleState {
   label: string
-  tone: 'active' | 'pending' | 'applied' | 'rejected' | 'error' | 'neutral'
+  tone: 'active' | 'pending' | 'applied' | 'error' | 'neutral'
 }
 
 function deriveCapsule(status: string, changes: WireChange[]): CapsuleState {
   const applied = changes.filter(c => c.status === 'applied').length
-  const rejected = changes.filter(c => c.status === 'rejected').length
-  const pending = changes.filter(c => c.status === 'pending' || c.status === 'approved').length
+  const pending = changes.filter(c => c.status === 'pending').length
   if (status === 'active') return { label: '进行中', tone: 'active' }
   if (status === 'failed') return { label: '失败', tone: 'error' }
   if (status === 'cancelled') return { label: '已取消', tone: 'neutral' }
-  if (changes.length > 0 && pending === 0 && rejected === 0 && applied > 0) {
+  if (changes.length > 0 && pending === 0 && applied > 0) {
     return { label: '已应用', tone: 'applied' }
   }
-  if (rejected > 0) return { label: '已拒绝', tone: 'rejected' }
   return { label: '待确认', tone: 'pending' }
 }
 
@@ -290,10 +288,10 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
     return ids
   }, [fileChanges, review, deniedIds])
 
-  // 3.0.6:待处理 = pending + approved + failed(failed 仍需用户处理);问题 = 需要用户注意的集合。
+  // 待处理 = pending + failed(failed 仍需用户处理);问题 = 需要用户注意的集合。
   const filteredChanges = useMemo(() => {
     if (filter === 'pending') {
-      return fileChanges.filter(c => c.status === 'pending' || c.status === 'approved' || c.status === 'failed')
+      return fileChanges.filter(c => c.status === 'pending' || c.status === 'failed')
     }
     if (filter === 'issues') return fileChanges.filter(c => issueIds.has(c.id))
     return fileChanges
@@ -397,7 +395,7 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
   }
 
   /** Tree quick actions + the review bar share one action path. */
-  const quickAction = (id: string, action: 'rollback' | 'repend'): void => {
+  const quickAction = (id: string, action: 'rollback'): void => {
     api.changeAction(id, action)
       .then(afterAction)
       .catch(err => setError(err instanceof Error ? err.message : String(err)))
@@ -422,7 +420,7 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
   const applyAll = (force = false): void => {
     setBusy(true)
     setWarnState(null)
-    api.acceptAllAndApply(sessionId, force)
+    api.applyAllPending(sessionId, force)
       .then(result => {
         afterAction()
         const conflicts = result.failed.filter(item => item.message.includes('external modification detected'))
@@ -828,7 +826,6 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
             ? { disabled: true }
             : {
               onRollback: (id: string) => quickAction(id, 'rollback'),
-              onRepend: (id: string) => quickAction(id, 'repend'),
               onApply: quickApply,
               disabled: panelLocked,
               deniedIds,
@@ -894,7 +891,7 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
             }),
           ),
       ),
-      // 4.x 底部 Action Dock:选中计数 + 回滚/拒绝全部/全部应用(只读面隐藏)。
+      // 4.x 底部 Action Dock:选中计数 + 回滚/全部应用(只读面隐藏)。
       readOnly ? null : createElement('div', { className: css.actionDock },
         createElement('div', { className: css.dockInfo },
           createElement('span', { className: css.dockCount }, `${fileChanges.length} 个变更`),

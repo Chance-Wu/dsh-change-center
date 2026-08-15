@@ -15,21 +15,20 @@ export type ChangeAction =
   | 'apply'
   | 'retry-apply'
   | 'rollback'
-  | 'repend'
 
 /**
  * Machine truth: legal target statuses per status. The host enforces these;
- * `failed` covers apply-attempt failures from any reviewable state.
+ * `failed` covers apply-attempt failures. Only two operations remain:
+ * 应用(pending/failed/rolled_back → applied)与 回滚(applied → rolled_back)。
  */
 export const CHANGE_TRANSITIONS: Record<ChangeStatus, ChangeStatus[]> = {
-  pending: ['approved', 'rejected', 'applied', 'failed'],
-  approved: ['applied', 'rejected', 'pending', 'failed'],
-  rejected: ['pending'],
-  applied: ['pending', 'rolled_back'],
+  pending: ['applied', 'failed'],
   // failed → failed 幂等:重试应用时引擎再次失败会走到同一分支,重复转移
   // 不应抛「非法转移」,而是返回引擎结果(如仍冲突)。
-  failed: ['pending', 'applied', 'approved', 'rejected', 'failed'],
-  rolled_back: ['pending'],
+  failed: ['applied', 'failed'],
+  applied: ['rolled_back'],
+  // 回滚后可再次应用(替代旧 repend 中间态)。
+  rolled_back: ['applied'],
 }
 
 /**
@@ -38,14 +37,11 @@ export const CHANGE_TRANSITIONS: Record<ChangeStatus, ChangeStatus[]> = {
  * future entry point all consume it — the UI never decides action legality.
  */
 export const CHANGE_ACTIONS: Record<ChangeStatus, ChangeAction[]> = {
-  // 5.x 流程收敛:pending 主路径即「应用」(不再提供「接受/拒绝」中间态)。
   pending: ['apply'],
-  approved: ['apply'],
-  // failed 不显示「接受」:批量中失败的变更已被接受。
   failed: ['retry-apply'],
   applied: ['rollback'],
-  rejected: ['repend'],
-  rolled_back: ['repend'],
+  // 回滚后主操作即「重新应用」。
+  rolled_back: ['apply'],
 }
 
 /** Whether a transition from `from` to `to` is legal per the machine. */

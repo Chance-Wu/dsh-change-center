@@ -75,21 +75,20 @@ function recordFile(ctx: Context, sessionId: string, path: string, over: Partial
   return change.id
 }
 
-describe('A. 状态机契约', () => {
+describe('A. 状态机契约(应用↔回滚 4 状态)', () => {
   it('actionsFor 与共享 CHANGE_STATE 完全一致,且每个操作都有合法转移', () => {
     const actionTarget: Record<ChangeAction, ChangeStatus> = {
       apply: 'applied',
       'retry-apply': 'applied',
       rollback: 'rolled_back',
-      repend: 'pending',
     }
     for (const status of Object.keys(CHANGE_ACTIONS) as ChangeStatus[]) {
       const actions = CHANGE_ACTIONS[status]
       const matrix = actionsFor(status)
-      expect(matrix.canApply).toBe(actions.includes('apply'))
-      expect(matrix.canRetryApply).toBe(actions.includes('retry-apply'))
-      expect(matrix.canRollback).toBe(actions.includes('rollback'))
-      expect(matrix.canRepend).toBe(actions.includes('repend'))
+      expect(matrix.canApply).toBe(actions.includes('apply') && status === 'pending')
+      expect(matrix.canRetryApply).toBe(actions.includes('retry-apply') && status === 'failed')
+      expect(matrix.canRollback).toBe(actions.includes('rollback') && status === 'applied')
+      expect(matrix.canReapply).toBe(actions.includes('apply') && status === 'rolled_back')
       for (const action of actions) {
         expect(canTransition(status, actionTarget[action]), `${status} → ${action}`).toBe(true)
       }
@@ -97,7 +96,7 @@ describe('A. 状态机契约', () => {
   })
 
   it('TRANSITIONS 表是 CHANGE_TRANSITIONS 的同一事实源', () => {
-    // CHANGE_TRANSITIONS 必须覆盖全部六个状态且每个目标合法可查。
+    // CHANGE_TRANSITIONS 必须覆盖全部四个状态且每个目标合法可查。
     for (const status of Object.keys(CHANGE_TRANSITIONS) as ChangeStatus[]) {
       for (const target of CHANGE_TRANSITIONS[status]) {
         expect(canTransition(status, target)).toBe(true)
@@ -112,9 +111,9 @@ describe('A. 状态机契约', () => {
       sessionId: 's', cwd: tempDir, path: 'a.txt', operation: 'modify',
       before: 'x\n', after: 'y\n', source: 'agent', toolName: 'edit',
     }).id
-    // 5.x:无 approve/reject;pending → repend 是非法转移。
-    const again = ctx.changeCenter.repend(id)
-    expect(again).toMatchObject({ kind: 'error' })
+    // 4 状态双操作模型:rolled_back 变更不可被「回滚」;apply 失败路径走 failed。
+    const rolled = ctx.changeCenter.rollback(id)
+    expect((await rolled)).toMatchObject({ kind: 'error' })
     const pending = ctx.changeCenter.get(id)
     expect(pending?.status).toBe('pending')
   })
@@ -186,7 +185,7 @@ describe('D. Batch 契约', () => {
     writeFileSync(join(tempDir, 'skip.ts'), 'changed\n')
     await ctx.changeCenter.apply(c4)
 
-    const result = await ctx.changeCenter.acceptAllAndApply(sessionId)
+    const result = await ctx.changeCenter.applyAllPending(sessionId)
     const all = [...result.applied, ...result.failed.map(f => f.id), ...result.blocked.map(b => b.id), ...result.skipped, ...result.superseded]
     // 互斥:无重复。
     expect(new Set(all).size).toBe(all.length)

@@ -24,13 +24,11 @@ export interface ReviewBarProps {
   onNext?: () => void
 }
 
-/** 状态 → 徽标样式类（共用;权重按 V-8:applied=成功主态、failed=突出、rejected/rolled_back=弱化）。 */
+/** 状态 → 徽标样式类(共用;按 V-8:applied=成功主态、failed=突出、rolled_back=弱化)。 */
 function statusClass(status: string): string {
   switch (status) {
     case 'pending': return baseCss.badgeWarn
-    case 'approved': return baseCss.badgeBusiness
     case 'applied': return baseCss.badgeSuccess
-    case 'rejected': return baseCss.badgeError
     case 'rolled_back': return baseCss.badge
     case 'failed': return baseCss.badgeError
     default: return baseCss.badge
@@ -142,12 +140,12 @@ export function ReviewBar(props: ReviewBarProps): ReactElement {
             className: baseCss.buttonGhost,
           }, '回滚')
           : null,
-        actions.canRepend
+        actions.canReapply
           ? createElement('button', {
-            onClick: () => run(() => api.changeAction(change.id, 'repend')),
+            onClick: () => run(() => api.applyChange(change.id)),
             disabled: inert,
-            className: baseCss.buttonGhost,
-          }, '重新处理')
+            className: baseCss.buttonPrimary,
+          }, '重新应用')
           : null,
       ),
     ),

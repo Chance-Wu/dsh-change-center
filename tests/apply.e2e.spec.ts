@@ -78,7 +78,7 @@ function executeWrite(ctx: Context, args: unknown, agent: Agent) {
 }
 
 describe('Apply Engine e2e', () => {
-  it('applies an approved change back to the workspace', async () => {
+  it('applies a change back to the workspace', async () => {
     const ctx = await setup()
     const agent = agentWithSession('apply-1')
     const target = join(tempDir, 'Service.java')
@@ -204,7 +204,7 @@ describe('Apply Engine e2e', () => {
     await executeWrite(ctx, { file_path: a, content: 'new a\n' }, agent)
     await executeWrite(ctx, { file_path: b, content: 'new b\n' }, agent)
 
-    const result = await ctx.changeCenter.acceptAllAndApply('accept-apply-1')
+    const result = await ctx.changeCenter.applyAllPending('accept-apply-1')
     expect(result.applied).toHaveLength(2)
     expect(result.failed).toHaveLength(0)
     expect(readFileSync(a, 'utf8')).toBe('new a\n')
@@ -222,7 +222,7 @@ describe('Apply Engine e2e', () => {
 
     await executeWrite(ctx, { file_path: a, content: 'new a\n' }, agent)
     await executeWrite(ctx, { file_path: b, content: 'new b\n' }, agent)
-    const applied = await ctx.changeCenter.acceptAllAndApply('rollback-all-1')
+    const applied = await ctx.changeCenter.applyAllPending('rollback-all-1')
     expect(applied.applied).toHaveLength(2)
 
     const result = await ctx.changeCenter.rollbackAll('rollback-all-1')
@@ -265,12 +265,12 @@ describe('Apply Engine e2e', () => {
     expect(changeSession.agentSessionId).toBe('bulk-route-1')
     expect(changeSession.id).not.toBe('bulk-route-1')
 
-    const wrongKey = await ctx.changeCenter.acceptAllAndApply(changeSession.id)
+    const wrongKey = await ctx.changeCenter.applyAllPending(changeSession.id)
     expect(wrongKey.applied).toHaveLength(0)
     expect(ctx.changeCenter.get(change.id)?.status).toBe('pending')
 
     // The route maps changeSession.id → changeSession.agentSessionId first.
-    const result = await ctx.changeCenter.acceptAllAndApply(changeSession.agentSessionId)
+    const result = await ctx.changeCenter.applyAllPending(changeSession.agentSessionId)
     expect(result.applied).toContain(change.id)
     expect(result.applied).toContain(commandChange.id)
     expect(ctx.changeCenter.get(change.id)?.status).toBe('applied')

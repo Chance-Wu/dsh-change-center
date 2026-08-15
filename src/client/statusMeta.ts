@@ -21,20 +21,15 @@ export interface StatusMeta {
 }
 
 /**
- * Status → icon/label/weight table:
- * pending ○待处理 · approved ●已接受 · applied ✓已应用 · rejected ×已拒绝 ·
- * failed !应用失败 · rolled_back ↶已回滚.
+ * Status → icon/label/weight table(4 状态,应用↔回滚):
+ * pending ○待处理 · applied ✓已应用 · failed !应用失败 · rolled_back ↶已回滚.
  */
 export function statusMeta(status: ChangeStatus): StatusMeta {
   switch (status) {
     case 'pending':
       return { icon: '○', label: '待处理', weight: 'normal' }
-    case 'approved':
-      return { icon: '●', label: '已接受', weight: 'normal' }
     case 'applied':
       return { icon: '✓', label: '已应用', weight: 'high' }
-    case 'rejected':
-      return { icon: '×', label: '已拒绝', weight: 'low' }
     case 'rolled_back':
       return { icon: '↶', label: '已回滚', weight: 'low' }
     case 'failed':

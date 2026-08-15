@@ -16,11 +16,13 @@ export type ChangeOperation =
   /** Command/external changes record an executed action. */
   | 'execute'
 
-/** Review state-machine status of one change. */
+/**
+ * Review state-machine status of one change (应用↔回滚双操作模型):
+ * pending(待处理)→ applied(已应用)→ rolled_back(已回滚)→ 可再 applied。
+ * failed 覆盖应用失败(可重试)。approved/rejected 已随「接受/拒绝」流程移除。
+ */
 export type ChangeStatus =
   | 'pending'
-  | 'approved'
-  | 'rejected'
   | 'applied'
   | 'failed'
   | 'rolled_back'

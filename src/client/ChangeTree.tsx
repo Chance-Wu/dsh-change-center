@@ -29,9 +29,7 @@ export interface ChangeTreeProps {
   onSelect: (id: string) => void
   /** Quick rollback from a tree row (applied). */
   onRollback?: (id: string) => void
-  /** Quick re-pend from a tree row (rejected/rolled_back). */
-  onRepend?: (id: string) => void
-  /** Quick apply from a tree row (pending/approved) — 3.x 树行主操作。 */
+  /** Quick apply from a tree row (pending/failed/rolled_back) — 行主操作。 */
   onApply?: (id: string) => void
   /** Panel lock (bulk op in flight / result showing): hide quick actions. */
   disabled?: boolean
@@ -199,12 +197,12 @@ function Chevron(props: { collapsed: boolean }): ReactElement {
   }))
 }
 
-/** 3.x:每行唯一主操作(应用优先,其余收进「···」)。 */
-function primaryAction(actions: ChangeActions): 'apply' | 'retry-apply' | 'rollback' | 'repend' | null {
+/** 4 状态双操作模型:每行唯一主操作(应用/重试/回滚/重新应用)。 */
+function primaryAction(actions: ChangeActions): 'apply' | 'retry-apply' | 'rollback' | 'reapply' | null {
   if (actions.canApply) return 'apply'
   if (actions.canRetryApply) return 'retry-apply'
   if (actions.canRollback) return 'rollback'
-  if (actions.canRepend) return 'repend'
+  if (actions.canReapply) return 'reapply'
   return null
 }
 
@@ -238,9 +236,9 @@ function renderFileRow(
   // 快速操作与操作栏共用同一矩阵(actionsFor),面板锁定时隐藏。
   const actions = actionsFor(change.status)
   const showActions = !(props.disabled ?? false)
-  // V-8 状态视觉:非待审状态在行尾显示状态字形(失败突出、已应用成功、拒绝/回滚弱化)。
+  // V-8 状态视觉:非待审状态在行尾显示状态字形(失败突出、已应用成功、回滚弱化)。
   const meta = statusMeta(change.status)
-  const statusGlyph = change.status === 'pending' || change.status === 'approved'
+  const statusGlyph = change.status === 'pending'
     ? null
     : createElement('span', {
       className: change.status === 'failed' ? css.statusFailed
@@ -250,7 +248,7 @@ function renderFileRow(
     }, meta.icon)
   // S-6:策略 deny 的变更显示 ⛔(优先级高于状态字形)。
   const denied = props.deniedIds?.has(change.id) ?? false
-  // 3.x:每行唯一主操作(由 actionsFor 决定合法性)。
+  // 每行唯一主操作(由 actionsFor 决定合法性)。
   const primary = primaryAction(actions)
 
   const stop = (handler: () => void) => (event: MouseEvent) => { event.stopPropagation(); handler() }
@@ -258,11 +256,10 @@ function renderFileRow(
     ? createElement('button', {
       className: actionClass(primary),
       onClick: stop(() => {
-        if (primary === 'apply' || primary === 'retry-apply') props.onApply?.(change.id)
+        if (primary === 'apply' || primary === 'retry-apply' || primary === 'reapply') props.onApply?.(change.id)
         else if (primary === 'rollback') props.onRollback?.(change.id)
-        else if (primary === 'repend') props.onRepend?.(change.id)
       }),
-    }, primary === 'retry-apply' ? '重试' : primary === 'apply' ? '应用' : primary)
+    }, primary === 'retry-apply' ? '重试' : primary === 'apply' ? '应用' : primary === 'reapply' ? '重新应用' : primary)
     : null
 
   return createElement('button', {

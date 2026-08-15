@@ -3,7 +3,7 @@
 DeepSeek Harness 插件:文件变更的**捕获 → 审查 → 应用 → 回滚**中心。
 
 > 范围(2025-08):专注变更的**应用与回滚**,并提供会话级批量操作(「全部应用」「全部回滚」+ Undo)。
-> 审批(Approval)与拒绝(Reject)已移除——变更只有「应用」一条落盘路径,冲突/失败/想放弃时走 回滚 / 编辑 / 重新处理 收敛;
+> 审批(Approval)与拒绝(Reject)已移除——变更只有「应用」一条落盘路径,冲突/失败/想放弃时走 回滚 / 编辑 收敛;
 > AI 审查 / 风险 / 验证 / 策略(`allow|warn|deny`) / git / 历史 保留为审查辅助。
 >
 > **2.x「Vibe Flow」(2025-08)**:UI 重构为低干扰控制台 —— 默认第一屏是**当前 Turn 卡片**(Focus 极简 ⇄ Review 展开),
@@ -42,17 +42,17 @@ DeepSeek Harness 插件:文件变更的**捕获 → 审查 → 应用 → 回滚
 - **Vibe UI(2.x / 3.x / 4.x)**:
   - 变更中心两个视图:**当前**(正在工作的 Turn 的 Focus 卡片,自动跟随,可「回到当前」)/ **会话**(按 今天/昨天/更早 分组的历史时间线,行内带一句话摘要)。
   - 会话面板 Focus 状态卡(摘要 + `✓ N files changed +X -Y` + 风险文字行 + `● Ready/AI 工作中` + **[Review] [全部应用]**;无待审时显示「✓ 已全部应用」;可展开 **Timeline** 与 **修改 N 个文件** 分解)⇄ Review 完整控制。
-  - 会话头部自然语言摘要(单文件 → 单目录 → 双目录 → 混合,如「修改 src/auth 和 src/user 下 5 个文件」;host 随会话落库 `ChangeSession.summary`,客户端兜底共用同一实现 `models/sessionSummary.ts`);状态视觉按 V-8 表(applied=主成功、failed=突出、rejected/rolled_back=弱化,pending=○)。
+  - 会话头部自然语言摘要(单文件 → 单目录 → 双目录 → 混合,如「修改 src/auth 和 src/user 下 5 个文件」;host 随会话落库 `ChangeSession.summary`,客户端兜底共用同一实现 `models/sessionSummary.ts`);状态视觉按 V-8 表(applied=主成功、failed=突出、rolled_back=弱化,pending=○)。
   - **底部 Action Dock**:`N 个变更 · 已选 <文件>` + [↶ 回滚(有已应用时)] [✓ 全部应用](顶部只剩过滤 tabs);无风险一步到位 → toast `✓ N 个变更已应用 [Undo 5s]`;有风险(外部修改/策略 deny)→「⚠ N 个变更… [查看] [仍然全部应用(force)]」轻确认,不弹复杂对话框;批量先 **Prepare 预检**(冲突/deny 写盘前全部暴露,`prepared` 计数)再 Commit。
-  - Issues 过滤器:**全部 / 待处理(pending+approved+failed)/ 问题**(问题 = 应用失败 ∪ 命中 error/critical 审查发现 ∪ 策略 deny 的变更)。
+  - Issues 过滤器:**全部 / 待处理(pending+failed)/ 问题**(问题 = 应用失败 ∪ 命中 error/critical 审查发现 ∪ 策略 deny 的变更)。
   - 逐变更风险标记:策略 deny 的变更行尾显示 **⛔**(`PolicyService.evaluateAll` 逐变更命中,`policy-evaluation` 接口返回 `hits`);冲突详情展示 `磁盘当前 hash ≠ 捕获时 hash`。
   - 键盘快捷键(输入框聚焦时不触发):`Cmd/Ctrl+K` 快捷键帮助浮层 · `Cmd/Ctrl+Enter` 应用当前 · `J`/`K`(`↑`/`↓`)上/下一个文件 · `A` 应用 · `U`/`Z` 回滚 · `M` 展开 AI 面板 · `Esc` 收起为 Focus。
   - DiffViewer(5.x):文件头 `+N -M` + 状态徽标(按状态语义着色)+ **行号**(统一视图 `before:after` gutter,并排左右行号);默认并排完整 diff,可切 **聚焦**(只显修改块+一句话)/统一/编辑;上方 **AI 变更解释卡**(为什么改/影响/建议 + 相关文件,无审查时给「运行 AI 审查」CTA);unified 行内 finding 标注(severity 色点);>500 行折叠渐进展开;脏状态弱视觉为文件名旁 `●`;样式全部收敛到 CSS Module。
   - 编辑器脏状态守卫:**保存后重算 before/after/diff,Apply 写入的一定是用户看到的版本**(`diskBaseline` 保证用户编辑不触发假冲突),未保存切换文件/会话先三选。
   - AI Review / Risk / Verification / Git / History / AI Fix 收进 `··· / 更多`,按 智能分析/验证/开发/修复 分组、默认折叠;风险默认只显示三级信号,不显示数字评分。
 - **审查**:
-  - 变更树:**默认目录树**(目录可折叠、行统计、全部展开/折叠),可切换「按扩展名 `*.ext`」分组(含聚合行数);路径为工作区相对路径;同一文件多次写入**只显示最新一次**(按路径去重);行悬停只显示**主操作**(应用/重试/回滚/重新处理);行尾状态字形(failed=!,applied=✓)+ deny ⛔。**4.x 大仓模式**:顶部搜索 / M-A-D 操作过滤 / 路径前缀过滤,目录树**平铺窗口化渲染**(固定行高 + 滚动窗口),万级变更不卡。
-  - Diff 三/四模式(聚焦 / 统一 / 并排 / 编辑)+ 每变更操作栏:**应用**(pending、approved)、重试应用(failed)、回滚(applied)、重新处理(rejected、rolled_back)+ ←/→ 文件导航;按钮可用性由单一 `actionsFor` 矩阵驱动(源自共享 `models/ChangeState.ts`);编辑器「**保存并应用**」一步写入(冲突时提示查看差异处理)。
+  - 变更树:**默认目录树**(目录可折叠、行统计、全部展开/折叠),可切换「按扩展名 `*.ext`」分组(含聚合行数);路径为工作区相对路径;同一文件多次写入**只显示最新一次**(按路径去重);行悬停只显示**主操作**(应用/重试/回滚/重新应用);行尾状态字形(failed=!,applied=✓)+ deny ⛔。**4.x 大仓模式**:顶部搜索 / M-A-D 操作过滤 / 路径前缀过滤,目录树**平铺窗口化渲染**(固定行高 + 滚动窗口),万级变更不卡。
+  - Diff 三/四模式(聚焦 / 统一 / 并排 / 编辑)+ 每变更操作栏:**应用**(pending)、重试应用(failed)、回滚(applied)、重新应用(rolled_back)+ ←/→ 文件导航;按钮可用性由单一 `actionsFor` 矩阵驱动(源自共享 `models/ChangeState.ts`);编辑器「**保存并应用**」一步写入(冲突时提示查看差异处理)。
 - **会话级批量操作**:「全部应用」(先 **Prepare 预检**——策略 + hash 守卫写盘前全部跑完,返回 `{applied, skipped, superseded, failed, blocked, prepared}`,superseded=被覆盖的旧写入、prepared=通过预检进入提交的待审数;`force` 时绕过 deny 门禁与外部修改守卫)、「全部回滚」(撤销全部已应用,返回 `{rolledBack, missing, failed}`,缺快照即无法恢复);批量结果以 toast 呈现,应用成功带 Undo 入口。
 - **辅助**:Git 仓库信息与未提交文件列表(**Focus Git 面板可手动 add / commit / push**,commit 需消息、push 需二次确认,服务永不自动提交)、AI 审查(结构化 JSON findings,可按需运行,结果不改变变更状态机)、确定性风险规则(评分仅供内部,UI 只显示三级信号)、验证任务、策略门控(allow/warn/deny,**批量应用受 deny 拦截**,可 force)、历史时间线、设置导航「变更中心」分支图标。
 - **后台任务**:验证 / AI 审查 / AI 修复 / 修复循环以 job 形式提交,HTTP 请求立即返回 `{job}`;客户端持有 `JobHandle {jobId, done, cancel}`,智能面板在任务运行中显示「取消」按钮、失败显示「重试」;`/events` SSE 流把变更/会话/job 事件推给浏览器,列表自动刷新、无需轮询。
@@ -74,9 +74,9 @@ src/
                · RiskSignal(三级信号) · TimelineView(4.x 会话时间轴,迷你/完整) · summary(会话摘要) · statusMeta(状态视觉) · changeActions(操作矩阵单一事实源) · ErrorBoundary
 ```
 
-变更状态机:`pending → applied → rolled_back`,以及 `approved` / `rejected` / `failed`
-(历史兼容:`approved`/`rejected` 仅存在于旧记录,可应用/重新处理,新记录不再产生),
-非法转移由状态模型直接拒绝(状态动作返回结构化错误,不抛 500)。
+变更状态机(应用↔回滚 4 状态):`pending → applied → rolled_back`,以及 `failed`(应用失败可重试);
+回滚后可直接**重新应用**(`rolled_back → applied`),无中间态。`approved`/`rejected` 已随「接受/拒绝」流程整体移除,
+旧持久化记录中的这两种状态不再有对应状态位。非法转移由状态模型直接拒绝(状态动作返回结构化错误,不抛 500)。
 
 > **3.x 单一事实源**:转移表(`ChangeService` 的 `TRANSITIONS`)、操作矩阵(`actionsFor`)、
 > 展示元数据(`statusMeta`)全部源自共享的 `src/models/ChangeState.ts` —— 任何组件都不能自行推断
@@ -84,16 +84,14 @@ src/
 
 ## 变更操作矩阵(单一事实源 `actionsFor`,操作栏与目录树共用)
 
-| 状态 | 应用 | 重试应用 | 回滚 | 重新处理 |
+| 状态 | 应用 | 重试应用 | 回滚 | 重新应用 |
 |------|:---:|:---:|:---:|:---:|
 | `pending` | ✅ | — | — | — |
-| `approved` | ✅ | — | — | — |
 | `failed` | — | ✅ | — | — |
 | `applied` | — | — | ✅ | — |
-| `rejected` | — | — | — | ✅ |
 | `rolled_back` | — | — | — | ✅ |
 
-- **重新处理** = `rejected|rolled_back → pending`(`POST /changes/:id/repend`),消除死胡同。
+- **重新应用** = `rolled_back → applied`(回滚后直接再应用,替代旧 repend 中间态)。
 - **全部应用** = 对每路径最新待审变更**直接应用**;非待审计入跳过、被覆盖的旧写入计入 superseded、策略 deny 计入 blocked(`?force=1` 时绕过 deny 门禁与外部修改守卫)。
 - 批量进行中/结果展示/编辑器有未保存修改期间,面板锁定:操作栏、目录树快速操作、编辑器保存全部禁用;结果以 toast 呈现,应用成功带 Undo(即「全部回滚」),6 秒后自动消失。
 
@@ -107,7 +105,7 @@ src/
 | 撤销/回滚 | 应用后「回滚」/ toast 撤销 /「全部回滚」 | 快照恢复 |
 
 > **主路径 = 应用**：pending 可直接「应用」；**接受(approve)与拒绝(reject)操作已整体移除**(端点/方法/UI),
-> `approved` / `rejected` 状态仅供历史兼容(旧记录仍可应用/重新处理)。
+> `approved` / `rejected` 状态位也已移除——旧持久化记录中的这两种状态不再有对应状态位。
 
 ## 开发
 
@@ -138,9 +136,9 @@ pnpm build       # tsc + tsdown(浏览器半边打包 lib/client.js)
 | 资源 | 说明 |
 |------|------|
 | `GET /changes` · `GET /changes/:id` | 变更列表 / 单个变更 |
-| `POST /changes/:id/{apply,rollback,edit,repend}` · `GET /changes/:id/current` · `POST /changes/:id/resolve` | 状态机操作(`apply?force=1` 绕过外部修改守卫;`edit` 需 body `{after}`;`repend` 重新处理 rejected/rolled_back;`current`=磁盘当前版本,`resolve`=写入用户选择的版本——冲突中心) |
+| `POST /changes/:id/{apply,rollback,edit}` · `GET /changes/:id/current` · `POST /changes/:id/resolve` | 状态机操作(`apply?force=1` 绕过外部修改守卫;`edit` 需 body `{after}`;`current`=磁盘当前版本,`resolve`=写入用户选择的版本——冲突中心) |
 | `GET /sessions` · `GET /sessions/:id[/changes]` | 变更会话 |
-| `POST /sessions/:id/accept-all-apply` | **全部应用**:先 Prepare 预检(策略 + hash)再 Commit,返回 `{result:{applied,skipped,superseded,failed,blocked,prepared}}`(计数互斥:applied+failed+blocked=处理数,skipped=非待审,superseded=被覆盖的旧写入;`?force=1` 绕过 deny 门禁与外部修改守卫) |
+| `POST /sessions/:id/apply-all` | **全部应用**:先 Prepare 预检(策略 + hash)再 Commit,返回 `{result:{applied,skipped,superseded,failed,blocked,prepared}}`(计数互斥:applied+failed+blocked=处理数,skipped=非待审,superseded=被覆盖的旧写入;`?force=1` 绕过 deny 门禁与外部修改守卫) |
 | `POST /sessions/:id/rollback-all` | **全部回滚**:撤销本会话全部已应用变更,返回 `{result:{rolledBack,missing,failed}}`(缺快照即无法恢复) |
 | `GET|POST /sessions/:id/git[/diff|log|status|add|commit|push]` · `GET /sessions/:id/verification` · `POST .../verification/run` | Git 与验证(`add` body `{paths?}`、`commit` body `{message}`、`push` body `{remote?,branch?}`,均为显式用户操作) |
 | `GET|POST /sessions/:id/review[/run]` · `.../risk[/analyze]` | AI 审查与风险 |

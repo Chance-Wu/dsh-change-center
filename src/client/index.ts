@@ -21,7 +21,7 @@ import type { FileChange } from '../models/FileChange.ts'
 import type { ChangeSession } from '../models/ChangeSession.ts'
 import type { ChangeEvent, ChangeRisk, ReviewFinding, ReviewResult, VerificationTask } from '../models/Phase3.ts'
 import type { ChangePolicy, FixRequest, FixResult } from '../models/Phase4.ts'
-import type { AcceptAllResult, RollbackAllResult } from '../services/ChangeService.ts'
+import type { ApplyAllResult, RollbackAllResult } from '../services/ChangeService.ts'
 import type { Job } from '../services/JobService.ts'
 import { ChangeCenterSection } from './ChangeCenterSection.tsx'
 import { ChangesTab, type ChangesTabInjected } from './ChangesTab.tsx'
@@ -63,8 +63,8 @@ export type WireChange = FileChange
 /** Wire shape of a change session — the host {@link ChangeSession} model. */
 export type WireSession = ChangeSession
 
-/** Wire shape of an accept-all-and-apply result — the host type. */
-export type WireAcceptAllResult = AcceptAllResult
+/** Wire shape of an apply-all result — the host type. */
+export type WireApplyAllResult = ApplyAllResult
 
 /** Wire shape of a rollback-all result — the host type. */
 export type WireRollbackAllResult = RollbackAllResult
@@ -173,7 +173,7 @@ export interface ChangeCenterApi {
   analytics(): Promise<WireAnalytics>
   listSessions(params?: PageParams): Promise<WirePage<WireSession>>
   sessionChanges(sessionId: string, params?: PageParams): Promise<WirePage<WireChange>>
-  changeAction(id: string, action: 'rollback' | 'repend'): Promise<ActionResult>
+  changeAction(id: string, action: 'rollback'): Promise<ActionResult>
   applyChange(id: string, force?: boolean): Promise<ActionResult>
   editChange(id: string, after: string): Promise<unknown>
   /** 4.6:读取磁盘当前版本(冲突中心对比用)。 */
@@ -181,7 +181,7 @@ export interface ChangeCenterApi {
   /** 4.6:写入用户明确选择的版本(冲突解决)。 */
   resolveChange(id: string, content: string): Promise<ActionResult>
   /** 全部接收并应用;force 时绕过 deny 门禁与外部修改守卫(「仍然全部应用」)。 */
-  acceptAllAndApply(sessionId: string, force?: boolean): Promise<WireAcceptAllResult>
+  applyAllPending(sessionId: string, force?: boolean): Promise<WireApplyAllResult>
   rollbackAll(sessionId: string): Promise<WireRollbackAllResult>
   gitStatus(sessionId: string): Promise<GitResponse>
   gitDiff(sessionId: string): Promise<GitResponse>
@@ -248,8 +248,8 @@ export function apiOf(): ChangeCenterApi {
     editChange: (id, after) => postJson(`/api/change-center/changes/${id}/edit`, { after }),
     changeCurrent: (id) => getJson(`/api/change-center/changes/${id}/current`).then(body => body as { exists: boolean; content: string | null }),
     resolveChange: (id, content) => postJson(`/api/change-center/changes/${id}/resolve`, { content }).then(body => body as ActionResult),
-    acceptAllAndApply: (sessionId, force) =>
-      postJson(`/api/change-center/sessions/${sessionId}/accept-all-apply${force ? '?force=1' : ''}`).then(body => (body as { result: WireAcceptAllResult }).result),
+    applyAllPending: (sessionId, force) =>
+      postJson(`/api/change-center/sessions/${sessionId}/apply-all${force ? '?force=1' : ''}`).then(body => (body as { result: WireApplyAllResult }).result),
     rollbackAll: (sessionId) =>
       postJson(`/api/change-center/sessions/${sessionId}/rollback-all`).then(body => (body as { result: WireRollbackAllResult }).result),
     gitStatus: (sessionId) => getJson(`/api/change-center/sessions/${sessionId}/git`).then(body => body as GitResponse),

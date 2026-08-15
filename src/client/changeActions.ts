@@ -15,23 +15,24 @@ export interface ChangeActions {
   canApply: boolean
   canRetryApply: boolean
   canRollback: boolean
-  /** rejected / rolled_back → pending (重新处理). */
-  canRepend: boolean
+  /** rolled_back → 重新应用(替代旧 repend 中间态). */
+  canReapply: boolean
 }
 
 /**
- * Actions allowed per status, from the shared CHANGE_ACTIONS table:
- * - apply: pending | approved
+ * Actions allowed per status, from the shared CHANGE_ACTIONS table
+ * (4 状态 · 应用↔回滚):
+ * - apply: pending
  * - retryApply: failed
  * - rollback: applied
- * - repend: rejected | rolled_back
+ * - reapply: rolled_back
  */
 export function actionsFor(status: ChangeStatus): ChangeActions {
   const actions = CHANGE_ACTIONS[status]
   return {
-    canApply: actions.includes('apply'),
-    canRetryApply: actions.includes('retry-apply'),
-    canRollback: actions.includes('rollback'),
-    canRepend: actions.includes('repend'),
+    canApply: status === 'pending' && actions.includes('apply'),
+    canRetryApply: status === 'failed' && actions.includes('retry-apply'),
+    canRollback: status === 'applied' && actions.includes('rollback'),
+    canReapply: status === 'rolled_back' && actions.includes('apply'),
   }
 }

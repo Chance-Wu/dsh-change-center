@@ -108,7 +108,7 @@ type Parsed =
   | { kind: 'sessions' }
   | { kind: 'session'; id: string }
   | { kind: 'session-changes'; id: string }
-  | { kind: 'session-action'; id: string; action: 'accept-all-apply' | 'rollback-all' }
+  | { kind: 'session-action'; id: string; action: 'apply-all' | 'rollback-all' }
   | { kind: 'git'; id: string; action: 'status' | 'diff' | 'log' | 'add' | 'commit' | 'push' }
   | { kind: 'verification'; id: string; action: 'run' | 'list' }
   | { kind: 'review'; id: string; action: 'run' | 'get' }
@@ -126,7 +126,7 @@ type Parsed =
   | { kind: 'changes' }
   | { kind: 'analytics' }
   | { kind: 'change'; id: string }
-  | { kind: 'change-action'; id: string; action: 'apply' | 'rollback' | 'edit' | 'repend' }
+  | { kind: 'change-action'; id: string; action: 'apply' | 'rollback' | 'edit' }
   | { kind: 'change-current'; id: string }
   | { kind: 'change-resolve'; id: string }
   | { kind: 'not-found' }
@@ -147,7 +147,7 @@ const ROUTE_RULES: RouteRule[] = [
   { re: /^\/sessions\/?$/, build: () => ({ kind: 'sessions' }) },
   { re: /^\/sessions\/([^/]+)$/, build: m => ({ kind: 'session', id: m[1]! }) },
   { re: /^\/sessions\/([^/]+)\/changes$/, build: m => ({ kind: 'session-changes', id: m[1]! }) },
-  { re: /^\/sessions\/([^/]+)\/(accept-all-apply|rollback-all)$/, build: m => ({ kind: 'session-action', id: m[1]!, action: m[2] as 'accept-all-apply' | 'rollback-all' }) },
+  { re: /^\/sessions\/([^/]+)\/(apply-all|rollback-all)$/, build: m => ({ kind: 'session-action', id: m[1]!, action: m[2] as 'apply-all' | 'rollback-all' }) },
   { re: /^\/sessions\/([^/]+)\/git\/?(diff|log|status|add|commit|push)?$/, build: m => ({ kind: 'git', id: m[1]!, action: (m[2] ?? 'status') as 'status' | 'diff' | 'log' | 'add' | 'commit' | 'push' }) },
   { re: /^\/sessions\/([^/]+)\/verification\/?(run)?$/, build: m => ({ kind: 'verification', id: m[1]!, action: (m[2] ?? 'list') as 'run' | 'list' }) },
   { re: /^\/sessions\/([^/]+)\/review\/?(run)?$/, build: m => ({ kind: 'review', id: m[1]!, action: (m[2] ?? 'get') as 'run' | 'get' }) },
@@ -163,7 +163,7 @@ const ROUTE_RULES: RouteRule[] = [
   { re: /^\/changes\/?$/, build: () => ({ kind: 'changes' }) },
   { re: /^\/analytics\/?$/, build: () => ({ kind: 'analytics' }) },
   { re: /^\/changes\/([^/]+)$/, build: m => ({ kind: 'change', id: m[1]! }) },
-  { re: /^\/changes\/([^/]+)\/(apply|rollback|edit|repend)$/, build: m => ({ kind: 'change-action', id: m[1]!, action: m[2] as 'apply' | 'rollback' | 'edit' | 'repend' }) },
+  { re: /^\/changes\/([^/]+)\/(apply|rollback|edit)$/, build: m => ({ kind: 'change-action', id: m[1]!, action: m[2] as 'apply' | 'rollback' | 'edit' }) },
   { re: /^\/changes\/([^/]+)\/current$/, build: m => ({ kind: 'change-current', id: m[1]! }) },
   { re: /^\/changes\/([^/]+)\/resolve$/, build: m => ({ kind: 'change-resolve', id: m[1]! }) },
 ]
@@ -276,9 +276,9 @@ async function dispatch(
       const session = ctx.changeSessions.get(parsed.id)
       if (session === undefined) return { error: `unknown session "${parsed.id}"` }
       const key = session.agentSessionId
-      if (parsed.action === 'accept-all-apply') {
+      if (parsed.action === 'apply-all') {
         const force = url.searchParams.get('force') === '1'
-        return { result: await ctx.changeCenter.acceptAllAndApply(key, force) }
+        return { result: await ctx.changeCenter.applyAllPending(key, force) }
       }
       if (parsed.action === 'rollback-all') {
         return { result: await ctx.changeCenter.rollbackAll(key) }
@@ -301,7 +301,6 @@ async function dispatch(
       const change = ctx.changeCenter.get(parsed.id)
       if (change === undefined) return { error: `unknown change "${parsed.id}"` }
       switch (parsed.action) {
-        case 'repend': return ctx.changeCenter.repend(parsed.id)
         case 'apply': {
           const force = url.searchParams.get('force') === '1'
           return ctx.changeCenter.apply(parsed.id, force)

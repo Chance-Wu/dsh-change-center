@@ -28,8 +28,6 @@ declare module '@deepseek-ai/cordis' {
 
 /** change.updated 的变更状态 → 历史事件类型(failed 不产生事件)。 */
 const STATUS_TO_EVENT: Partial<Record<ChangeStatus, ChangeEventType>> = {
-  approved: 'approved',
-  rejected: 'rejected',
   applied: 'applied',
   rolled_back: 'rolled_back',
 }

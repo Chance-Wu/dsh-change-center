@@ -144,7 +144,7 @@ function record(agentKey: string, path: string, operation: 'create' | 'modify' |
 }
 
 describe('session-action over HTTP (agent-key mapping)', () => {
-  it('accept-all-apply reaches the change store through the change-session id', async () => {
+  it('apply-all reaches the change store through the change-session id', async () => {
     const agentKey = `e2e-batch-${Date.now()}`
     const target = join(tempDir, 'B.java')
     writeFileSync(target, 'new\n')
@@ -156,7 +156,7 @@ describe('session-action over HTTP (agent-key mapping)', () => {
     const sessionId = ctx.changeSessions.list()[0]!.id
     expect(sessionId).not.toBe(agentKey)
 
-    const { status, body } = await postJson(`/sessions/${sessionId}/accept-all-apply`)
+    const { status, body } = await postJson(`/sessions/${sessionId}/apply-all`)
     expect(status).toBe(200)
     const result = (body as { result: { applied: string[] } }).result
     expect(result.applied).toContain(changeId)
@@ -175,7 +175,7 @@ describe('session-action over HTTP (agent-key mapping)', () => {
       source: 'agent', toolName: 'edit',
     })
     const sessionId = ctx.changeSessions.list()[0]!.id
-    await postJson(`/sessions/${sessionId}/accept-all-apply`)
+    await postJson(`/sessions/${sessionId}/apply-all`)
     const { body } = await postJson(`/sessions/${sessionId}/rollback-all`)
     const result = (body as { result: { rolledBack: string[] } }).result
     expect(result.rolledBack).toHaveLength(1)
@@ -184,7 +184,7 @@ describe('session-action over HTTP (agent-key mapping)', () => {
   })
 
   it('reports an unknown session instead of silently doing nothing', async () => {
-    const { status, body } = await postJson('/sessions/session-999/accept-all-apply')
+    const { status, body } = await postJson('/sessions/session-999/apply-all')
     expect(status).toBe(200)
     expect((body as { error?: string }).error).toContain('unknown session')
   })
@@ -276,7 +276,7 @@ describe('fix loop route (key mapping)', () => {
 
 describe('method checks and pagination', () => {
   it('rejects GET on action routes and POST on read routes', async () => {
-    const { status: getOnPost } = await getJson('/sessions/s-1/accept-all-apply')
+    const { status: getOnPost } = await getJson('/sessions/s-1/apply-all')
     expect(getOnPost).toBe(405)
     const { status: postOnGet } = await postJson('/sessions')
     expect(postOnGet).toBe(405)
