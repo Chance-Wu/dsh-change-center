@@ -190,6 +190,29 @@ describe('B + C. Apply / Rollback 契约(真实文件系统)', () => {
     expect(readFileSync(target, 'utf8')).toBe('changed\n')
     expect(ctx.changeCenter.get(id)?.status).toBe('applied')
   })
+
+  it('hunk 级撤销/应用:撤销某块仅该区域恢复 before,其余块保持应用', async () => {
+    const ctx = await fullSetup()
+    const target = join(tempDir, 'hunks.txt')
+    const before = 'a\nb\nc\nd\ne\nf\n'
+    const after = 'A\nb\nc\nD\ne\nf\n'
+    // 捕获发生在写盘之后:磁盘 = after(所有 hunk 默认已应用)。
+    writeFileSync(target, after)
+    const id = recordFile(ctx, 'hunk-1', target, { before, after })
+    // 撤销 hunk0(行1 a→A):文件恢复 before 的 a,其余(hunk1 的 d→D)保持。
+    const reverted = await ctx.changeCenter.applyHunk(id, 0, true)
+    expect(reverted.kind).toBe('applied')
+    expect(readFileSync(target, 'utf8')).toBe('a\nb\nc\nD\ne\nf\n')
+    expect(ctx.changeCenter.get(id)?.hunkApplied).toEqual([false, true])
+    // 重新应用 hunk0:文件回到完整 after。
+    const reapplied = await ctx.changeCenter.applyHunk(id, 0, false)
+    expect(reapplied.kind).toBe('applied')
+    expect(readFileSync(target, 'utf8')).toBe(after)
+    expect(ctx.changeCenter.get(id)?.hunkApplied).toEqual([true, true])
+    // 越界 index → 结构化错误。
+    const bad = await ctx.changeCenter.applyHunk(id, 9, true)
+    expect(bad).toMatchObject({ kind: 'error' })
+  })
 })
 
 describe('D. Batch 契约', () => {

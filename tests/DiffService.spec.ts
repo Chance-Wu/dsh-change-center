@@ -4,7 +4,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { diffLines, renderUnified } from '../src/services/DiffService.ts'
+import { diffLines, renderUnified, diffHunks, applyHunks } from '../src/services/DiffService.ts'
 
 describe('diffLines', () => {
   it('reports no changes for identical text', () => {
@@ -74,5 +74,57 @@ describe('renderUnified', () => {
 
   it('renders a no-changes marker for identical text', () => {
     expect(renderUnified('same\n', 'same\n')).toBe('(no changes)')
+  })
+})
+
+describe('diffHunks', () => {
+  it('splits separated change blocks into distinct hunks', () => {
+    const hunks = diffHunks('a\nb\nc\nd\ne\nf\n', 'A\nb\nc\nD\ne\nf\n')
+    expect(hunks).toHaveLength(2)
+    // hunk0: 行1 a→A;hunk1: 行4 d→D。
+    expect(hunks[0]).toMatchObject({ index: 0, beforeStart: 1, beforeLines: ['a'], afterLines: ['A'] })
+    expect(hunks[1]).toMatchObject({ index: 1, beforeStart: 4, beforeLines: ['d'], afterLines: ['D'] })
+  })
+
+  it('handles a pure insertion hunk (beforeStart points at the insertion point)', () => {
+    const hunks = diffHunks('a\nb\n', 'a\nX\ny\nb\n')
+    expect(hunks).toHaveLength(1)
+    expect(hunks[0]).toMatchObject({ index: 0, beforeStart: 2, beforeLines: [], afterLines: ['X', 'y'] })
+  })
+
+  it('handles a pure deletion hunk', () => {
+    const hunks = diffHunks('a\nX\nb\n', 'a\nb\n')
+    expect(hunks).toHaveLength(1)
+    expect(hunks[0]).toMatchObject({ index: 0, beforeStart: 2, beforeLines: ['X'], afterLines: [] })
+  })
+})
+
+describe('applyHunks (逐块接受重构)', () => {
+  const before = 'a\nb\nc\nd\ne\nf\n'
+  const after = 'A\nb\nc\nD\ne\nf\n'
+
+  it('no hunk applied → before content', () => {
+    const hunks = diffHunks(before, after)
+    expect(applyHunks(before, hunks, [false, false])).toBe(before)
+  })
+
+  it('all hunks applied → after content (初始状态:捕获后文件=after)', () => {
+    const hunks = diffHunks(before, after)
+    expect(applyHunks(before, hunks, [true, true])).toBe(after)
+  })
+
+  it('only hunk0 applied → 逐块接受:该块生效,其余保持 before', () => {
+    const hunks = diffHunks(before, after)
+    expect(applyHunks(before, hunks, [true, false])).toBe('A\nb\nc\nd\ne\nf\n')
+  })
+
+  it('revert hunk0 (应用后撤销)→ 仅 hunk1 保持应用', () => {
+    const hunks = diffHunks(before, after)
+    expect(applyHunks(before, hunks, [false, true])).toBe('a\nb\nc\nD\ne\nf\n')
+  })
+
+  it('preserves the trailing newline of before', () => {
+    const hunks = diffHunks('a\nb\n', 'A\nb\n')
+    expect(applyHunks('a\nb\n', hunks, [true])).toBe('A\nb\n')
   })
 })

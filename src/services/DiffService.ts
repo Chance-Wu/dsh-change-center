@@ -181,3 +181,74 @@ function computeLcs(a: string[], b: string[]): LcsItem[] {
   }
   return out
 }
+
+/** One change block (hunk) of a diff: the before region + its replacement. */
+export interface DiffHunk {
+  index: number
+  /** 1-based line in the BEFORE text where this hunk's region starts. */
+  beforeStart: number
+  /** Lines this hunk removes from before (empty for pure insertions). */
+  beforeLines: string[]
+  /** Lines this hunk inserts (empty for pure deletions). */
+  afterLines: string[]
+  additions: number
+  deletions: number
+}
+
+/**
+ * Split an annotated diff into hunks: contiguous del/ins runs form one hunk,
+ * context lines between runs separate hunks. Each hunk records its position in
+ * the BEFORE text and the replacement lines, so a caller can apply or revert a
+ * single hunk by reconstructing the before text.
+ */
+export function diffHunks(before: string | null, after: string | null): DiffHunk[] {
+  const lines = diffLines(before, after)
+  const hunks: DiffHunk[] = []
+  let beforeNo = 0
+  let current: DiffHunk | null = null
+  for (const line of lines) {
+    if (line.kind === 'context') {
+      beforeNo++
+      current = null
+      continue
+    }
+    if (line.kind === 'del') {
+      beforeNo++
+      if (current === null) {
+        current = { index: hunks.length, beforeStart: beforeNo, beforeLines: [], afterLines: [], additions: 0, deletions: 0 }
+        hunks.push(current)
+      }
+      current.beforeLines.push(line.text)
+      current.deletions++
+    } else {
+      if (current === null) {
+        current = { index: hunks.length, beforeStart: beforeNo + 1, beforeLines: [], afterLines: [], additions: 0, deletions: 0 }
+        hunks.push(current)
+      }
+      current.afterLines.push(line.text)
+      current.additions++
+    }
+  }
+  return hunks
+}
+
+/**
+ * Reconstruct the file text from `before` with the given hunks applied
+ * (hunk k applied ⇒ its beforeLines are replaced by afterLines; unapplied
+ * hunks keep the before content). Preserves `before`'s trailing newline.
+ */
+export function applyHunks(before: string | null, hunks: DiffHunk[], applied: boolean[]): string {
+  const a = splitLines(before)
+  let out = a
+  let delta = 0
+  const ordered = [...hunks].sort((x, y) => x.beforeStart - y.beforeStart)
+  for (const hunk of ordered) {
+    if (!(applied[hunk.index] ?? false)) continue
+    const start = hunk.beforeStart - 1 + delta
+    const beforeLen = hunk.beforeLines.length
+    out = [...out.slice(0, start), ...hunk.afterLines, ...out.slice(start + beforeLen)]
+    delta += hunk.afterLines.length - beforeLen
+  }
+  const body = out.join('\n')
+  return before !== null && before.endsWith('\n') && body.length > 0 ? `${body}\n` : body
+}

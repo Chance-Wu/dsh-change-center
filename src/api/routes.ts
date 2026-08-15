@@ -127,6 +127,7 @@ type Parsed =
   | { kind: 'analytics' }
   | { kind: 'change'; id: string }
   | { kind: 'change-action'; id: string; action: 'apply' | 'rollback' | 'edit' }
+  | { kind: 'change-hunk'; id: string }
   | { kind: 'change-current'; id: string }
   | { kind: 'change-resolve'; id: string }
   | { kind: 'not-found' }
@@ -164,6 +165,7 @@ const ROUTE_RULES: RouteRule[] = [
   { re: /^\/analytics\/?$/, build: () => ({ kind: 'analytics' }) },
   { re: /^\/changes\/([^/]+)$/, build: m => ({ kind: 'change', id: m[1]! }) },
   { re: /^\/changes\/([^/]+)\/(apply|rollback|edit)$/, build: m => ({ kind: 'change-action', id: m[1]!, action: m[2] as 'apply' | 'rollback' | 'edit' }) },
+  { re: /^\/changes\/([^/]+)\/hunk$/, build: m => ({ kind: 'change-hunk', id: m[1]! }) },
   { re: /^\/changes\/([^/]+)\/current$/, build: m => ({ kind: 'change-current', id: m[1]! }) },
   { re: /^\/changes\/([^/]+)\/resolve$/, build: m => ({ kind: 'change-resolve', id: m[1]! }) },
 ]
@@ -314,6 +316,13 @@ async function dispatch(
           return ctx.changeCenter.edit(parsed.id, after)
         }
       }
+    }
+    case 'change-hunk': {
+      const { index, revert, force } = (body ?? {}) as { index?: unknown; revert?: unknown; force?: unknown }
+      if (typeof index !== 'number' || !Number.isInteger(index) || index < 0) {
+        return { error: 'hunk requires a non-negative integer `index` body field' }
+      }
+      return ctx.changeCenter.applyHunk(parsed.id, index, revert === true, force === true)
     }
     case 'change-current': {
       // 4.6 Conflict Center:读取磁盘当前版本。

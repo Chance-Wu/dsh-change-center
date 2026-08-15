@@ -416,6 +416,23 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
       .catch(err => setError(err instanceof Error ? err.message : String(err)))
   }
 
+  /** 块级操作:应用/撤销 diff 中的单个 hunk,其余块保持不变。 */
+  const applyHunk = (index: number, revert: boolean): void => {
+    if (change === null) return
+    api.applyHunk(change.id, index, revert)
+      .then((result: ActionResult) => {
+        afterAction()
+        if ((result as { kind?: string }).kind === 'conflict') {
+          setToast({ text: '该块操作冲突:磁盘内容与捕获版本不一致', kind: 'warn' })
+        } else if ((result as { kind?: string }).kind === 'error') {
+          setToast({ text: `! 块操作失败:${(result as { message?: string }).message ?? '未知错误'}`, kind: 'error' })
+        } else {
+          setToast({ text: revert ? '✓ 已撤销该块' : '✓ 已应用该块', kind: 'ok' })
+        }
+      })
+      .catch(err => setError(err instanceof Error ? err.message : String(err)))
+  }
+
   // ── V-4 批量操作 ────────────────────────────────────────────────
   const applyAll = (force = false): void => {
     setBusy(true)
@@ -872,6 +889,7 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
               disabled: panelLocked,
               // 只读面:不提供编辑与 AI 审查运行。
               readOnly,
+              onHunk: readOnly ? undefined : applyHunk,
               review,
               changes: fileChanges,
               onSelectChange: (id) => { setSelectedChange(id); setDiffMode('focus') },

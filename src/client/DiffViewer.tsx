@@ -12,8 +12,8 @@
 
 import { createElement, useEffect, useMemo, useState, type ReactElement } from 'react'
 import type { WireChange, WireFinding, WireReview } from './index.ts'
-import type { SideBySideRow } from '../services/DiffService.ts'
-import { countDiff, sideBySideRows } from '../services/DiffService.ts'
+import type { SideBySideRow, DiffHunk } from '../services/DiffService.ts'
+import { countDiff, diffHunks, sideBySideRows } from '../services/DiffService.ts'
 import { statusMeta } from './statusMeta.ts'
 import css from './DiffViewer.module.css'
 import baseCss from './styles.module.css'
@@ -26,6 +26,8 @@ export interface DiffViewerProps {
   mode: DiffMode
   onModeChange: (mode: DiffMode) => void
   onSaved: (after: string) => void
+  /** Qoder 风格块级操作:应用/撤销 diff 中单个 hunk。 */
+  onHunk?: (index: number, revert: boolean) => void
   /** Panel lock (bulk op in flight / result showing): disable saving edits. */
   disabled?: boolean
   /**
@@ -58,6 +60,9 @@ export function DiffViewer(props: DiffViewerProps): ReactElement {
   const rows: SideBySideRow[] = useMemo(() => sideBySideRows(change.before, change.after), [change.before, change.after])
   const counts = useMemo(() => countDiff(change.before, change.after), [change.before, change.after])
   const meta = statusMeta(change.status)
+  // Qoder 风格 hunk 块:分割 + 应用状态(缺省=全部已应用,文件已是 after)。
+  const hunks: DiffHunk[] = useMemo(() => diffHunks(change.before, change.after), [change.before, change.after])
+  const applied = change.hunkApplied ?? hunks.map(() => true)
 
   // Fallback local copy for callers that do not control the draft.
   const [localDraft, setLocalDraft] = useState(change.after ?? '')
@@ -159,7 +164,10 @@ export function DiffViewer(props: DiffViewerProps): ReactElement {
             createElement('button', { onClick: () => setDiffExpanded(true), className: baseCss.buttonGhost }, '展开全部'),
           )
           : mode === 'focus' ? createElement(FocusView, { change, review: props.review ?? null, explanation })
-          : mode === 'unified' ? createElement(UnifiedView, { change, findings: explanation?.findings ?? [] })
+          : mode === 'unified'
+            ? (hunks.length > 0 && props.onHunk !== undefined && !readOnly
+              ? createElement(HunkedView, { change, hunks, applied, onHunk: props.onHunk })
+              : createElement(UnifiedView, { change, findings: explanation?.findings ?? [] }))
             : mode === 'side-by-side' ? createElement(SideBySideView, { rows })
               : createElement('div', { className: css.editorArea },
         createElement('textarea', {
@@ -385,6 +393,49 @@ function unifiedLineNumbers(lines: string[]): { before: (number | null)[]; after
   return { before, after }
 }
 
+
+/** Qoder 风格:hunk 分组的 diff 视图,每块带「应用该块 / 撤销该块」。 */
+function HunkedView(props: {
+  change: WireChange
+  hunks: DiffHunk[]
+  applied: boolean[]
+  onHunk: (index: number, revert: boolean) => void
+}): ReactElement {
+  const { hunks, applied, onHunk } = props
+  return createElement('div', { className: css.hunkList },
+    hunks.map(hunk => {
+      const isApplied = applied[hunk.index] ?? true
+      return createElement('div', {
+        key: hunk.index,
+        className: isApplied ? css.hunk : `${css.hunk} ${css.hunkReverted}`,
+      },
+      createElement('div', { className: css.hunkHeader },
+        createElement('span', { className: css.hunkTitle }, `块 ${hunk.index + 1} · -${hunk.deletions} +${hunk.additions}`),
+        createElement('span', { className: isApplied ? css.hunkAppliedTag : css.hunkRevertedTag },
+          isApplied ? '已应用' : '已撤销'),
+        createElement('div', { className: css.hunkActions },
+          isApplied
+            ? createElement('button', { className: baseCss.buttonMini, onClick: () => onHunk(hunk.index, true) }, '撤销该块')
+            : createElement('button', { className: baseCss.buttonMini, onClick: () => onHunk(hunk.index, false) }, '应用该块'),
+        ),
+      ),
+      // 行内容:已应用块显示 -/+;已撤销块显示当前磁盘内容(该区域为 before,灰)。
+      hunk.beforeLines.map((line, i) => createElement('div', {
+        key: `b-${i}`,
+        className: isApplied ? css.diffLineRemoved : css.diffLineContext,
+        style: { display: 'block', padding: '0 8px' },
+      }, `${isApplied ? '-' : ' '}${line}`)),
+      isApplied
+        ? hunk.afterLines.map((line, i) => createElement('div', {
+          key: `a-${i}`,
+          className: css.diffLineAdded,
+          style: { display: 'block', padding: '0 8px' },
+        }, `+${line}`))
+        : null,
+      )
+    }),
+  )
+}
 
 /** Unified diff: one line per annotated diff row, with inline finding annotations. */
 function UnifiedView(props: { change: WireChange; findings: WireFinding[] }): ReactElement {

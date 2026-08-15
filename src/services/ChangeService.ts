@@ -17,10 +17,12 @@ import type {} from '@deepseek-ai/dsh-fs'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import type { FileChange, ChangeOperation, ChangeStatus, ChangeSource, ChangeKind } from '../models/FileChange.ts'
 import { CHANGE_TRANSITIONS as TRANSITIONS } from '../models/ChangeState.ts'
-import { renderUnified } from './DiffService.ts'
+import { applyHunks, diffHunks, renderUnified } from './DiffService.ts'
 import { JsonlStore, maxIdSuffix } from './JsonlStore.ts'
 import type { ApplyService, ApplyResult } from './ApplyService.ts'
+import { sha256 } from './ApplyService.ts'
 import type { SnapshotService, RollbackResult } from './SnapshotService.ts'
+import { workspaceWritePolicy } from './pluginFs.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -294,6 +296,69 @@ export class ChangeService extends Service {
       this.transition(id, 'failed')
       this.ctx.emit('change.updated', change, message)
       return { kind: 'error', message }
+    }
+  }
+
+  /**
+   * Qoder 风格块级操作:应用或撤销 diff 中的单个 hunk,并把结果写回工作区。
+   *
+   * 捕获发生在工具写盘之后,文件初始 = after ⇒ 每个 hunk 默认已应用
+   * (`hunkApplied` 缺省 = 全 true)。「撤销该块」把该区域恢复为 before 内容,
+   * 「应用该块」重新写回 after 内容;其余块保持不变(逐块接受语义)。
+   * 写入带 diskBaseline 外部修改守卫(与 apply 一致,force 绕过)。
+   *
+   * @param id - change id。
+   * @param index - hunk 序号(与 `diffHunks(before, after)` 顺序一致)。
+   * @param revert - true=撤销该块,false=应用该块。
+   * @param force - 绕过外部修改守卫。
+   */
+  async applyHunk(id: string, index: number, revert = false, force = false): Promise<ApplyResult> {
+    const change = this.changes.get(id)
+    if (change === undefined) {
+      return { kind: 'error', message: `unknown change "${id}"` }
+    }
+    if (change.kind !== 'file' || change.before === null || change.after === null) {
+      return { kind: 'error', message: 'hunk operations require a file change with before/after content' }
+    }
+    const hunks = diffHunks(change.before, change.after)
+    if (index < 0 || index >= hunks.length) {
+      return { kind: 'error', message: `hunk index ${index} out of range (${hunks.length} hunks)` }
+    }
+    const fs = this.ctx.get('fs')
+    const snapshots: SnapshotService | undefined = this.ctx.get('snapshots')
+    if (fs === undefined || snapshots === undefined) {
+      return { kind: 'error', message: 'apply engine unavailable (fs/snapshots not mounted)' }
+    }
+    const applied = change.hunkApplied ?? hunks.map(() => true)
+    applied[index] = !revert
+    const content = applyHunks(change.before, hunks, applied)
+    try {
+      const target = await fs.resolve(change.path, {
+        cwd: change.cwd.length > 0 ? change.cwd : undefined,
+      })
+      const info = await fs.stat(target)
+      const currentText = info !== undefined ? await fs.readText(target) : undefined
+      if (!force) {
+        const baseline = change.diskBaseline !== undefined ? change.diskBaseline : change.after
+        if ((info !== undefined) !== (baseline !== null)) {
+          return { kind: 'conflict', currentHash: info !== undefined ? sha256(currentText ?? '') : 'missing', beforeHash: baseline === null ? 'absent' : sha256(baseline) }
+        }
+        if (info !== undefined && sha256(currentText ?? '') !== sha256(baseline ?? '')) {
+          return { kind: 'conflict', currentHash: sha256(currentText ?? ''), beforeHash: sha256(baseline ?? '') }
+        }
+      }
+      await snapshots.snapshot(change)
+      await fs.writeText(target, content, undefined, undefined, workspaceWritePolicy(change.cwd))
+      change.hunkApplied = applied
+      change.diskBaseline = content
+      if (change.status !== 'applied') {
+        this.transition(id, 'applied')
+      }
+      this.persist()
+      this.ctx.emit('change.updated', change)
+      return { kind: 'applied', operation: 'update' }
+    } catch (error) {
+      return { kind: 'error', message: error instanceof Error ? error.message : String(error) }
     }
   }
 

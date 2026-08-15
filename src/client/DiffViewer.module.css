@@ -501,3 +501,51 @@
   color: var(--dsw-alias-label-tertiary);
   font-size: var(--dsw-font-xxs-12);
 }
+
+/* Qoder 风格 hunk 块视图 */
+.hunkList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.hunk {
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.hunkReverted {
+  border-style: dashed;
+  opacity: 0.85;
+}
+
+.hunkHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  background: var(--dsw-alias-bg-layer-3);
+  border-bottom: 1px solid var(--dsw-alias-border-l1);
+  font-size: var(--dsw-font-xxxs-11);
+}
+
+.hunkTitle {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.hunkAppliedTag {
+  color: var(--dsw-alias-state-success-primary);
+}
+
+.hunkRevertedTag {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.hunkActions {
+  margin-left: auto;
+  display: inline-flex;
+  gap: 4px;
+}

@@ -63,6 +63,12 @@ export interface FileChange {
    * 仍会被 hash 守卫拦截。旧记录缺省时回退为与 after 比较。
    */
   diskBaseline?: string | null
+  /**
+   * Qoder 风格块级操作:diff 各 hunk 的应用状态(与 `diffHunks` 顺序一一对应)。
+   * 缺省 = 全部已应用(捕获发生在写盘之后,文件已是 after);`false` 表示该块
+   * 已撤销(文件该区域保持 before 内容)。
+   */
+  hunkApplied?: boolean[]
   /** Unified-diff text derived from before/after. */
   diff: string
   status: ChangeStatus

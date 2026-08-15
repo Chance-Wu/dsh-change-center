@@ -175,6 +175,8 @@ export interface ChangeCenterApi {
   sessionChanges(sessionId: string, params?: PageParams): Promise<WirePage<WireChange>>
   changeAction(id: string, action: 'rollback'): Promise<ActionResult>
   applyChange(id: string, force?: boolean): Promise<ActionResult>
+  /** Qoder 风格:应用或撤销 diff 中单个 hunk(revert=true 撤销该块)。 */
+  applyHunk(id: string, index: number, revert?: boolean, force?: boolean): Promise<ActionResult>
   editChange(id: string, after: string): Promise<unknown>
   /** 4.6:读取磁盘当前版本(冲突中心对比用)。 */
   changeCurrent(id: string): Promise<{ exists: boolean; content: string | null }>
@@ -245,6 +247,8 @@ export function apiOf(): ChangeCenterApi {
       postJson(`/api/change-center/changes/${id}/${action}`).then(body => body as ActionResult),
     applyChange: (id, force) =>
       postJson(`/api/change-center/changes/${id}/apply${force ? '?force=1' : ''}`).then(body => body as ActionResult),
+    applyHunk: (id, index, revert, force) =>
+      postJson(`/api/change-center/changes/${id}/hunk`, { index, revert: revert ?? false, force: force ?? false }).then(body => body as ActionResult),
     editChange: (id, after) => postJson(`/api/change-center/changes/${id}/edit`, { after }),
     changeCurrent: (id) => getJson(`/api/change-center/changes/${id}/current`).then(body => body as { exists: boolean; content: string | null }),
     resolveChange: (id, content) => postJson(`/api/change-center/changes/${id}/resolve`, { content }).then(body => body as ActionResult),
