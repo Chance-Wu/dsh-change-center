@@ -26,13 +26,13 @@ describe('countDiff', () => {
 describe('sideBySideRows', () => {
   it('aligns context rows with both texts', () => {
     const rows = sideBySideRows('a\nc\n', 'a\nb\nc\n')
-    expect(rows[0]).toEqual({ insertion: false, deletion: false, before: 'a', after: 'a' })
-    expect(rows[1]).toEqual({ insertion: true, deletion: false, after: 'b' })
-    expect(rows[2]).toEqual({ insertion: false, deletion: false, before: 'c', after: 'c' })
+    expect(rows[0]).toEqual({ insertion: false, deletion: false, before: 'a', after: 'a', beforeNo: 1, afterNo: 1 })
+    expect(rows[1]).toEqual({ insertion: true, deletion: false, after: 'b', afterNo: 2 })
+    expect(rows[2]).toEqual({ insertion: false, deletion: false, before: 'c', after: 'c', beforeNo: 2, afterNo: 3 })
   })
 
   it('marks deletions with only before', () => {
     const rows = sideBySideRows('a\nb\n', 'a\n')
-    expect(rows[1]).toEqual({ insertion: false, deletion: true, before: 'b' })
+    expect(rows[1]).toEqual({ insertion: false, deletion: true, before: 'b', beforeNo: 2 })
   })
 })

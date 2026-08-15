@@ -160,3 +160,33 @@
   color: var(--dsw-alias-label-secondary);
   margin-top: 2px;
 }
+
+/* 5.x 文件导航 */
+.navGroup {
+  display: inline-flex;
+  gap: 2px;
+  margin-right: 4px;
+}
+.navBtn {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--dsw-alias-border-l2);
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  border-radius: 6px;
+  font-size: var(--dsw-font-xxs-12);
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+.navBtn:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+.navBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}

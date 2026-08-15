@@ -261,3 +261,9 @@
   min-width: 0;
   min-height: 560px;
 }
+
+@media (prefers-reduced-motion: reduce) {
+  .currentWorking {
+    animation: none;
+  }
+}

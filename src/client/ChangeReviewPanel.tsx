@@ -23,6 +23,7 @@ import type {
   ChangeCenterApi, GitActionResult, GitResponse, WireAcceptAllResult, WireChange, WireHistoryEvent, WirePolicyEvaluation, WirePolicyHit, WireReview, WireRisk,
 } from './index.ts'
 import { ChangeTree, dedupeByPath, relativePath } from './ChangeTree.tsx'
+import type { DiffMode } from './DiffViewer.tsx'
 import { ErrorBoundary } from './ErrorBoundary.tsx'
 import { TimelineView } from './TimelineView.tsx'
 import { OPERATION_MARK } from './i18n.ts'
@@ -55,6 +56,11 @@ export interface ChangeReviewPanelProps {
   onEditorDirtyChange?: (dirty: boolean) => void
   /** 2.3 S-8:会话自然语言摘要(host 落库);缺省时客户端启发式兜底。 */
   summary?: string
+  /**
+   * 只读面(设置变更中心):只记录和展示内容 —— 隐藏全部操作
+   * (应用/拒绝/回滚/撤销、Git、编辑、AI 审查运行、快捷键)。
+   */
+  readOnly?: boolean
 }
 
 /** 批量结果摘要自动消失的时长（毫秒）。 */
@@ -111,12 +117,13 @@ export function isReviewableChange(change: WireChange): boolean {
 export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
   const {
     sessionId, name, status, workspace, api, onChanged,
-    defaultMode = 'review', onEditorDirtyChange, summary: persistedSummary,
+    defaultMode = 'review', onEditorDirtyChange, summary: persistedSummary, readOnly = false,
   } = props
   const [changes, setChanges] = useState<WireChange[]>([])
   const [treeLoading, setTreeLoading] = useState(true)
   const [selectedChange, setSelectedChange] = useState<string | null>(null)
-  const [diffMode, setDiffMode] = useState<'unified' | 'side-by-side' | 'editor'>('side-by-side')
+  // 5.x:默认 Focus Diff(只显修改块 + 一句话),统一/并排/编辑查看完整代码。
+  const [diffMode, setDiffMode] = useState<DiffMode>('focus')
   const [mode, setMode] = useState<'focus' | 'review'>(defaultMode)
   const [moreOpen, setMoreOpen] = useState(false)
   const [filter, setFilter] = useState<ChangeFilter>('all')
@@ -308,8 +315,9 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
   const panelLocked = busy || toast !== null || warnState !== null || editorDirty
 
   // P-3 键盘快捷键(仅高频动作;输入框/编辑器聚焦时全部短路)。
+  // 只读面没有操作,快捷键整体关闭。
   useEffect(() => {
-    if (mode !== 'review') return
+    if (mode !== 'review' || readOnly) return
     const onKey = (event: KeyboardEvent): void => {
       const target = event.target as HTMLElement | null
       if (target !== null && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return
@@ -381,6 +389,15 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
     const target = fileChanges.find(c => c.id === id)
     setSelectedChange(id)
     setEditorDraft(target?.after ?? '')
+  }
+
+  /** 5.x 文件导航:跨文件切换(键盘 j/k 之外的可见入口)。 */
+  const navigateChange = (delta: number): void => {
+    const currentIndex = change !== null ? filteredChanges.findIndex(c => c.id === change.id) : -1
+    const next = currentIndex + delta
+    if (next >= 0 && next < filteredChanges.length) {
+      handleSelect(filteredChanges[next]!.id)
+    }
   }
 
   /** Tree quick actions + the review bar share one action path. */
@@ -532,7 +549,8 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
   }
 
   // ── Focus 模式(3.x):状态卡 —— 只回答「有什么变化?要不要应用?」 ─────
-  if (mode === 'focus') {
+  // 只读面始终停留在 Review(展示)模式,不进入 Focus 操作卡。
+  if (mode === 'focus' && !readOnly) {
     // 3.0.5 风险文字行(不显示任何分数/规则)。
     const riskLine = signal.level === 'block'
       ? `⛔ ${deniedIds.size} 个变更被策略阻止`
@@ -737,17 +755,18 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
         ),
         createElement('div', { className: css.headerRight },
           createElement(RiskSignal, { level: signal.level, hint: signal.hint }),
-          createElement('button', {
+          // 只读面不提供快捷键/聚焦卡/More 操作面板。
+          readOnly ? null : createElement('button', {
             onClick: () => setShortcutsOpen(!shortcutsOpen),
             className: baseCss.buttonGhost,
             title: '快捷键(⌘K)',
           }, '⌘K'),
-          createElement('button', {
+          readOnly ? null : createElement('button', {
             onClick: () => setMode('focus'),
             className: baseCss.buttonGhost,
             title: '收起为聚焦卡片',
           }, '聚焦'),
-          createElement('button', {
+          readOnly ? null : createElement('button', {
             onClick: () => setMoreOpen(!moreOpen),
             className: moreOpen ? baseCss.buttonPrimary : baseCss.buttonGhost,
             title: 'AI 审查 / 风险 / 验证 / Git / 历史 / 修复',
@@ -812,15 +831,19 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
           changes: filteredChanges,
           selected: filteredChanges.some(c => c.id === selectedChange) ? selectedChange : null,
           onSelect: handleSelect,
-          onApprove: (id) => quickAction(id, 'approve'),
-          onReject: (id) => quickAction(id, 'reject'),
-          onRollback: (id) => quickAction(id, 'rollback'),
-          onRepend: (id) => quickAction(id, 'repend'),
-          onApply: quickApply,
-          disabled: panelLocked,
+          // 只读面:树只展示,行上不挂任何操作。
+          ...(readOnly
+            ? { disabled: true }
+            : {
+              onApprove: (id: string) => quickAction(id, 'approve'),
+              onReject: (id: string) => quickAction(id, 'reject'),
+              onRollback: (id: string) => quickAction(id, 'rollback'),
+              onRepend: (id: string) => quickAction(id, 'repend'),
+              onApply: quickApply,
+              disabled: panelLocked,
+              deniedIds,
+            }),
           loading: treeLoading,
-          // S-6:策略 deny 的变更显示 ⛔。
-          deniedIds,
         }),
         moreOpen
           ? createElement(IntelligencePanel, {
@@ -836,7 +859,7 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
         change === null
           ? createElement('div', { className: css.centerEmpty },
             changes.length > 0
-              ? '仅记录了命令执行，没有文件变更可审查'
+              ? '仅记录了命令执行，没有文件变更可展示'
               : '暂无文件变更，让 agent 修改文件后会自动出现在这里')
           : createElement('div', { className: css.viewerWrap },
             createElement(DiffViewer, {
@@ -851,19 +874,29 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
                   .catch(err => setError(err instanceof Error ? err.message : String(err)))
               },
               disabled: panelLocked,
+              // 只读面:不提供编辑与 AI 审查运行。
+              readOnly,
               review,
+              changes: fileChanges,
+              onSelectChange: (id) => { setSelectedChange(id); setDiffMode('focus') },
+              onRunReview: readOnly ? undefined : () => {
+                api.reviewRun(sessionId).then(afterAction).catch(err => setError(err instanceof Error ? err.message : String(err)))
+              },
             }),
-            createElement(ReviewBar, {
+            // 只读面:隐藏逐条操作条。
+            readOnly ? null : createElement(ReviewBar, {
               change,
               api,
               onAction: afterAction,
               onError: (message) => setError(message),
               disabled: panelLocked,
+              onPrev: () => navigateChange(-1),
+              onNext: () => navigateChange(1),
             }),
           ),
       ),
-      // 4.x 底部 Action Dock:选中计数 + 拒绝/应用选中/全部应用。
-      createElement('div', { className: css.actionDock },
+      // 4.x 底部 Action Dock:选中计数 + 拒绝/应用选中/全部应用(只读面隐藏)。
+      readOnly ? null : createElement('div', { className: css.actionDock },
         createElement('div', { className: css.dockInfo },
           createElement('span', { className: css.dockCount }, `${fileChanges.length} 个变更`),
           change !== null

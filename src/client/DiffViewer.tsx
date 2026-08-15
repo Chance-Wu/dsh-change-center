@@ -11,7 +11,7 @@
  */
 
 import { createElement, useEffect, useMemo, useState, type ReactElement } from 'react'
-import type { WireChange, WireReview } from './index.ts'
+import type { WireChange, WireFinding, WireReview } from './index.ts'
 import type { SideBySideRow } from '../services/DiffService.ts'
 import { countDiff } from '../services/DiffService.ts'
 import { statusMeta } from './statusMeta.ts'
@@ -19,10 +19,12 @@ import css from './DiffViewer.module.css'
 import baseCss from './styles.module.css'
 
 /** Props for the diff viewer. */
+export type DiffMode = 'focus' | 'unified' | 'side-by-side' | 'editor'
+
 export interface DiffViewerProps {
   change: WireChange
-  mode: 'unified' | 'side-by-side' | 'editor'
-  onModeChange: (mode: 'unified' | 'side-by-side' | 'editor') => void
+  mode: DiffMode
+  onModeChange: (mode: DiffMode) => void
   onSaved: (after: string) => void
   /** Panel lock (bulk op in flight / result showing): disable saving edits. */
   disabled?: boolean
@@ -36,6 +38,14 @@ export interface DiffViewerProps {
   onDirtyChange?: (dirty: boolean) => void
   /** 4.x AI 审查结果:存在时默认显示 AI 摘要,代码 diff 折叠展开。 */
   review?: WireReview | null
+  /** 5.x 会话内全部变更(用于「相关文件」影响分析)。 */
+  changes?: WireChange[]
+  /** 5.x 点击相关文件时切换选中。 */
+  onSelectChange?: (id: string) => void
+  /** 5.x 无审查结果时,点击「运行 AI 审查」CTA。 */
+  onRunReview?: () => void
+  /** 只读:隐藏编辑模式与「运行 AI 审查」CTA —— 记录/展示面不设操作。 */
+  readOnly?: boolean
 }
 
 /**
@@ -44,7 +54,7 @@ export interface DiffViewerProps {
  * here (same LCS semantics) rather than imported.
  */
 export function DiffViewer(props: DiffViewerProps): ReactElement {
-  const { change, mode, onModeChange, onSaved, disabled = false } = props
+  const { change, mode, onModeChange, onSaved, disabled = false, readOnly = false } = props
   const rows: SideBySideRow[] = useMemo(() => alignRows(change.before, change.after), [change.before, change.after])
   const counts = useMemo(() => countDiff(change.before, change.after), [change.before, change.after])
   const meta = statusMeta(change.status)
@@ -64,6 +74,15 @@ export function DiffViewer(props: DiffViewerProps): ReactElement {
 
   // 4.x:有 AI 审查时代码 diff 默认折叠,先看摘要再展开。
   const [diffOpen, setDiffOpen] = useState(props.review === undefined || props.review === null)
+  // 5.x per-change 解释(从会话级 AI 审查按文件投影,零新增 LLM)。
+  const explanation = useMemo(
+    () => props.review !== undefined && props.review !== null ? buildExplanation(change, props.review, props.changes ?? []) : null,
+    [change, props.review, props.changes],
+  )
+  // 5.x 大文件折叠:>500 行先折叠,「展开全部」渐进加载。
+  const [diffExpanded, setDiffExpanded] = useState(false)
+  const totalDiffLines = useMemo(() => diffTextLines(change.diff).length, [change.diff])
+  const LARGE_DIFF_LINES = 500
 
   // 保存反馈:乐观提示「✓ 已保存」1.5 秒(失败由面板错误区呈现)。
   const [justSaved, setJustSaved] = useState(false)
@@ -109,15 +128,23 @@ export function DiffViewer(props: DiffViewerProps): ReactElement {
         }, `${meta.icon} ${meta.label}`),
       ),
       createElement('div', { className: css.modeTabs },
+        modeTab('聚焦', mode === 'focus', () => onModeChange('focus')),
         modeTab('统一', mode === 'unified', () => onModeChange('unified')),
         modeTab('并排', mode === 'side-by-side', () => onModeChange('side-by-side')),
-        modeTab('编辑', mode === 'editor', () => onModeChange('editor')),
+        // 只读面不提供编辑操作。
+        readOnly ? null : modeTab('编辑', mode === 'editor', () => onModeChange('editor')),
       ),
     ),
     createElement('div', { className: css.content },
-      props.review !== undefined && props.review !== null
-        ? createElement(AISummaryBlock, { review: props.review, change })
-        : null,
+      // 5.x 解释卡:为什么改 / 影响 / 建议 + 相关文件。
+      createElement(ExplanationCard, {
+        change,
+        explanation,
+        review: props.review ?? null,
+        // 只读面不提供「运行 AI 审查」操作。
+        onRunReview: readOnly ? undefined : props.onRunReview,
+        onSelectChange: props.onSelectChange,
+      }),
       props.review !== undefined && props.review !== null
         ? createElement('button', {
           className: css.diffToggle,
@@ -126,9 +153,15 @@ export function DiffViewer(props: DiffViewerProps): ReactElement {
         }, `${diffOpen ? '▾' : '▸'} 展开代码 Diff`)
         : null,
       (diffOpen || props.review === undefined || props.review === null) && (
-        mode === 'unified' ? createElement(UnifiedView, { change })
-          : mode === 'side-by-side' ? createElement(SideBySideView, { rows })
-            : createElement('div', { className: css.editorArea },
+        totalDiffLines > LARGE_DIFF_LINES && !diffExpanded
+          ? createElement('div', { className: css.diffLarge },
+            createElement('span', null, `共 ${totalDiffLines} 行变更`),
+            createElement('button', { onClick: () => setDiffExpanded(true), className: baseCss.buttonGhost }, '展开全部'),
+          )
+          : mode === 'focus' ? createElement(FocusView, { change, review: props.review ?? null, explanation })
+          : mode === 'unified' ? createElement(UnifiedView, { change, findings: explanation?.findings ?? [] })
+            : mode === 'side-by-side' ? createElement(SideBySideView, { rows })
+              : createElement('div', { className: css.editorArea },
         createElement('textarea', {
           value: draft,
           onChange: (event: { target: { value: string } }) => setDraft(event.target.value),
@@ -192,23 +225,213 @@ function modeTab(label: string, active: boolean, onClick: () => void): ReactElem
   }, label)
 }
 
-/** Unified diff: one line per annotated diff row. */
-function UnifiedView(props: { change: WireChange }): ReactElement {
-  const { change } = props
+/** 5.x per-change 解释:从会话级 AI 审查按文件投影(零新增 LLM)。 */
+interface ChangeExplanation {
+  findings: WireFinding[]
+  reason: string
+  risks: string[]
+  suggestion: string
+  relatedFiles: { id: string; path: string; operation: string; status: string }[]
+}
+
+/** 该文件的 findings(路径精确/后缀匹配)。 */
+function findingsFor(change: WireChange, review: WireReview): WireFinding[] {
+  return review.findings.filter(f => {
+    if (f.filePath.length === 0) return false
+    return change.path === f.filePath || change.path.endsWith(`/${f.filePath}`)
+  })
+}
+
+/** 同目录判定(父目录相同)。 */
+function sameDir(a: string, b: string): boolean {
+  const ia = a.lastIndexOf('/')
+  const ib = b.lastIndexOf('/')
+  if (ia < 0 || ib < 0) return a === b
+  return a.slice(0, ia) === b.slice(0, ib)
+}
+
+function buildExplanation(change: WireChange, review: WireReview, changes: WireChange[]): ChangeExplanation {
+  const findings = findingsFor(change, review)
+  const reason = findings.map(f => f.title).filter(Boolean).join('；')
+  const risks = [...new Set(findings.map(f => f.severity))]
+  const suggestion = findings.find(f => f.suggestion !== undefined && f.suggestion.length > 0)?.suggestion ?? ''
+  // 相关文件:同目录的其他变更 + 被 review 提及的其他文件。
+  const related = changes
+    .filter(c => c.id !== change.id && c.kind !== 'command')
+    .filter(c => sameDir(relativeName(change), relativeName(c)) || review.findings.some(f => matchesAny(c, f.filePath)))
+    .slice(0, 6)
+    .map(c => ({ id: c.id, path: c.path.split('/').pop() ?? c.path, operation: c.operation, status: c.status }))
+  return { findings, reason, risks, suggestion, relatedFiles: related }
+}
+
+function relativeName(change: WireChange): string {
+  const base = (change.cwd ?? '').replace(/\/+$/, '')
+  if (base.length > 0 && change.path.startsWith(`${base}/`)) return change.path.slice(base.length + 1)
+  return change.path
+}
+
+function matchesAny(change: WireChange, filePath: string): boolean {
+  if (filePath.length === 0) return false
+  return change.path === filePath || change.path.endsWith(`/${filePath}`)
+}
+
+/** 5.x 解释卡:为什么改 / 影响 / 建议 + 相关文件(影响分析)。 */
+function ExplanationCard(props: {
+  change: WireChange
+  explanation: ChangeExplanation | null
+  review: WireReview | null
+  onRunReview?: () => void
+  onSelectChange?: (id: string) => void
+}): ReactElement {
+  const { change, explanation, review, onRunReview, onSelectChange } = props
+  const showCta = review === null && onRunReview !== undefined
+  const hasContent = explanation !== null && (explanation.reason.length > 0 || explanation.suggestion.length > 0 || explanation.relatedFiles.length > 0)
+  if (showCta) {
+    return createElement('div', { className: css.explanation },
+      createElement('div', { className: css.explanationHead },
+        createElement('span', { className: css.explanationTitle }, 'AI 变更解释'),
+        createElement('button', { onClick: onRunReview, className: baseCss.buttonMini }, '运行 AI 审查'),
+      ),
+      createElement('div', { className: css.explanationMuted }, '运行审查后,这里会解释该文件「为什么改 / 影响 / 建议」。'),
+    )
+  }
+  if (explanation === null || !hasContent) return createElement(ReactNull, null)
+  return createElement('div', { className: css.explanation },
+    createElement('div', { className: css.explanationHead },
+      createElement('span', { className: css.explanationTitle }, 'AI 变更解释'),
+      explanation.risks.length > 0
+        ? createElement('span', { className: css.explanationRisks },
+          explanation.risks.map(risk => createElement('span', { key: risk, className: riskSeverityClass(risk) }, SEVERITY_ZH[risk] ?? risk)))
+        : null,
+    ),
+    explanation.reason.length > 0
+      ? createElement('div', { className: css.explanationRow },
+        createElement('span', { className: css.explanationLabel }, '为什么改'),
+        createElement('span', { className: css.explanationText }, explanation.reason))
+      : null,
+    explanation.suggestion.length > 0
+      ? createElement('div', { className: css.explanationRow },
+        createElement('span', { className: css.explanationLabel }, '建议'),
+        createElement('span', { className: css.explanationText }, explanation.suggestion))
+      : null,
+    explanation.relatedFiles.length > 0
+      ? createElement('div', { className: css.explanationRow },
+        createElement('span', { className: css.explanationLabel }, '影响'),
+        createElement('div', { className: css.relatedFiles },
+          explanation.relatedFiles.map(file => createElement('button', {
+            key: file.id,
+            className: css.relatedFile,
+            onClick: () => onSelectChange?.(file.id),
+            title: '点击查看该文件',
+          },
+          createElement('span', { className: file.operation === 'delete' ? css.relatedDel : file.operation === 'create' ? css.relatedAdd : css.relatedMod }, OPERATION_MARK[file.operation] ?? '?'),
+          createElement('span', { className: css.relatedPath }, file.path),
+          )),
+        ))
+      : null,
+  )
+}
+
+/** 无内容占位(解释卡空态)。 */
+function ReactNull(): ReactElement { return null as unknown as ReactElement }
+
+/** severity → 风险 chip 类。 */
+function riskSeverityClass(severity: string): string {
+  if (severity === 'error' || severity === 'critical') return css.riskChipError
+  if (severity === 'warning') return css.riskChipWarn
+  return css.riskChipInfo
+}
+
+const OPERATION_MARK: Record<string, string> = { create: 'A', modify: 'M', delete: 'D', rename: 'R' }
+
+/** 5.x Focus Diff:只显示修改块(+/- 行)+ 一句话说明。 */
+function FocusView(props: { change: WireChange; review: WireReview | null; explanation: ChangeExplanation | null }): ReactElement {
+  const { change, review, explanation } = props
+  const lines = diffTextLines(change.diff).filter(line => line.startsWith('+') || line.startsWith('-'))
+  const oneLiner = explanation !== null && explanation.reason.length > 0
+    ? explanation.reason
+    : review !== null && review.summary.length > 0 ? review.summary : ''
+  return createElement('div', { className: css.focusDiff },
+    oneLiner.length > 0
+      ? createElement('div', { className: css.focusLiner }, oneLiner)
+      : null,
+    lines.length > 0
+      ? createElement('div', { className: css.diffBody },
+        lines.map((line, index) => {
+          const kind = line.startsWith('+') ? 'added' : 'removed'
+          return createElement('span', {
+            key: index,
+            className: kind === 'added' ? css.diffLineAdded : css.diffLineRemoved,
+            style: { display: 'block', padding: '0 8px' },
+          }, line)
+        }),
+      )
+      : createElement('div', { className: css.diffNoChange }, '(无变更)'),
+  )
+}
+
+/** 行内标注:unified diff 行号映射(finding.line 命中)。 */
+function unifiedLineNumbers(lines: string[]): { before: (number | null)[]; after: (number | null)[] } {
+  const before: (number | null)[] = []
+  const after: (number | null)[] = []
+  let b = 0
+  let a = 0
+  for (const line of lines) {
+    if (line.startsWith('---') || line.startsWith('+++')) { before.push(null); after.push(null); continue }
+    if (line.startsWith('-') && !line.startsWith('--')) { before.push(b + 1); after.push(null); b++ }
+    else if (line.startsWith('+') && !line.startsWith('++')) { before.push(null); after.push(a + 1); a++ }
+    else { before.push(b + 1); after.push(a + 1); b++; a++ }
+  }
+  return { before, after }
+}
+
+
+/** Unified diff: one line per annotated diff row, with inline finding annotations. */
+function UnifiedView(props: { change: WireChange; findings: WireFinding[] }): ReactElement {
+  const { change, findings } = props
   const lines = diffTextLines(change.diff)
+  const nums = unifiedLineNumbers(lines)
+  // diff 行下标 → 命中的 findings(按 before/after 行号)。
+  const hits = new Map<number, WireFinding[]>()
+  for (const f of findings) {
+    if (f.line === undefined) continue
+    lines.forEach((_, i) => {
+      if (nums.before[i] === f.line || nums.after[i] === f.line) {
+        const arr = hits.get(i) ?? []
+        arr.push(f)
+        hits.set(i, arr)
+      }
+    })
+  }
   return createElement('div', { className: css.diffBody },
     lines.map((line, index) => {
       const kind = line.startsWith('+') ? 'added' : line.startsWith('-') ? 'removed' : 'context'
-      return createElement('span', {
+      const hit = hits.get(index)
+      return createElement('div', {
         key: index,
-        className: kind === 'added' ? css.diffLineAdded
-          : kind === 'removed' ? css.diffLineRemoved
-            : css.diffLineContext,
-        style: { display: 'block', padding: '0 8px' },
-      }, line)
+        className: kind === 'added' ? css.diffRowAdded
+          : kind === 'removed' ? css.diffRowRemoved
+            : css.diffRow,
+      },
+      // 行号 gutter:context 显示「before:after」,单侧变更显示对应侧号。
+      createElement('span', { className: css.lineNo },
+        `${nums.before[index] !== null ? nums.before[index] : ''}${nums.before[index] !== null && nums.after[index] !== null ? ':' : ''}${nums.after[index] !== null ? nums.after[index] : ''}`),
+      createElement('span', { className: css.lineText }, line),
+      hit !== undefined
+        ? createElement('span', { className: css.inlineNote, title: hit.map(h => h.title).join('；') },
+          hit.map(h => createElement('span', { key: h.id, className: severityNoteClass(h.severity) }, '●')),
+        )
+        : null,
+      )
     }),
     lines.length === 0 ? createElement('div', { className: css.diffNoChange }, '(无变更)') : null,
   )
+}
+
+function severityNoteClass(severity: string): string {
+  if (severity === 'error' || severity === 'critical') return css.noteError
+  if (severity === 'warning') return css.noteWarn
+  return css.noteInfo
 }
 
 /** Split a unified diff string into lines, preserving -/+ prefixes. */
@@ -235,9 +458,11 @@ function SideBySideView(props: { rows: SideBySideRow[] }): ReactElement {
       ].filter(Boolean).join(' '),
     },
     createElement('div', { className: css.sideCol },
+      createElement('span', { className: css.lineNo }, row.beforeNo ?? ''),
       row.deletion || !row.insertion ? createElement('span', { className: css.sideColDelText }, row.before ?? '') : null,
     ),
     createElement('div', { className: css.sideCol },
+      createElement('span', { className: css.lineNo }, row.afterNo ?? ''),
       row.insertion || !row.deletion ? createElement('span', { className: css.sideColInsText }, row.after ?? '') : null,
     ),
     )),
@@ -253,14 +478,14 @@ function alignRows(before: string | null, after: string | null): SideBySideRow[]
   let i = 0
   let j = 0
   for (const item of lcs) {
-    while (i < item.a) { out.push({ insertion: false, deletion: true, before: a[i] }); i++ }
-    while (j < item.b) { out.push({ insertion: true, deletion: false, after: b[j] }); j++ }
-    out.push({ insertion: false, deletion: false, before: a[i], after: a[i] })
+    while (i < item.a) { out.push({ insertion: false, deletion: true, before: a[i], beforeNo: i + 1 }); i++ }
+    while (j < item.b) { out.push({ insertion: true, deletion: false, after: b[j], afterNo: j + 1 }); j++ }
+    out.push({ insertion: false, deletion: false, before: a[i], after: a[i], beforeNo: i + 1, afterNo: j + 1 })
     i++
     j++
   }
-  while (i < a.length) { out.push({ insertion: false, deletion: true, before: a[i] }); i++ }
-  while (j < b.length) { out.push({ insertion: true, deletion: false, after: b[j] }); j++ }
+  while (i < a.length) { out.push({ insertion: false, deletion: true, before: a[i], beforeNo: i + 1 }); i++ }
+  while (j < b.length) { out.push({ insertion: true, deletion: false, after: b[j], afterNo: j + 1 }); j++ }
   return out
 }
 

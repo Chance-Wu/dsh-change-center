@@ -104,6 +104,10 @@ export interface SideBySideRow {
   deletion: boolean
   before?: string
   after?: string
+  /** 1-based line number in the before text (context/del rows). */
+  beforeNo?: number
+  /** 1-based line number in the after text (context/ins rows). */
+  afterNo?: number
 }
 
 /**
@@ -113,10 +117,20 @@ export interface SideBySideRow {
 export function sideBySideRows(before: string | null, after: string | null): SideBySideRow[] {
   const lines = diffLines(before, after)
   const rows: SideBySideRow[] = []
+  let beforeNo = 0
+  let afterNo = 0
   for (const line of lines) {
-    if (line.kind === 'context') rows.push({ insertion: false, deletion: false, before: line.text, after: line.text })
-    else if (line.kind === 'del') rows.push({ insertion: false, deletion: true, before: line.text })
-    else rows.push({ insertion: true, deletion: false, after: line.text })
+    if (line.kind === 'context') {
+      beforeNo++
+      afterNo++
+      rows.push({ insertion: false, deletion: false, before: line.text, after: line.text, beforeNo, afterNo })
+    } else if (line.kind === 'del') {
+      beforeNo++
+      rows.push({ insertion: false, deletion: true, before: line.text, beforeNo })
+    } else {
+      afterNo++
+      rows.push({ insertion: true, deletion: false, after: line.text, afterNo })
+    }
   }
   return rows
 }

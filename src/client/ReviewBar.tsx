@@ -19,6 +19,9 @@ export interface ReviewBarProps {
   onError: (message: string) => void
   /** External disable (e.g. a session-level bulk operation is in flight). */
   disabled?: boolean
+  /** 5.x 文件导航:上一个 / 下一个变更。 */
+  onPrev?: () => void
+  onNext?: () => void
 }
 
 /** 状态 → 徽标样式类（共用;权重按 V-8:applied=成功主态、failed=突出、rejected/rolled_back=弱化）。 */
@@ -36,7 +39,7 @@ function statusClass(status: string): string {
 
 /** Per-change review controls. */
 export function ReviewBar(props: ReviewBarProps): ReactElement {
-  const { change, api, onAction, onError, disabled = false } = props
+  const { change, api, onAction, onError, disabled = false, onPrev, onNext } = props
   const [conflict, setConflict] = useState<ActionResult | null>(null)
   // 3.3:策略 deny 是真正的 Guard —— 给「仍然应用(force)」路径。
   const [deny, setDeny] = useState<{ message: string } | null>(null)
@@ -98,6 +101,22 @@ export function ReviewBar(props: ReviewBarProps): ReactElement {
   return createElement('div', { className: css.wrap },
     createElement('div', { className: css.bar },
       createElement('div', { className: css.left },
+        onPrev !== undefined || onNext !== undefined
+          ? createElement('div', { className: css.navGroup },
+            createElement('button', {
+              onClick: onPrev,
+              disabled: inert || onPrev === undefined,
+              className: css.navBtn,
+              title: '上一个变更 (K)',
+            }, '←'),
+            createElement('button', {
+              onClick: onNext,
+              disabled: inert || onNext === undefined,
+              className: css.navBtn,
+              title: '下一个变更 (J)',
+            }, '→'),
+          )
+          : null,
         createElement('span', { className: statusClass(change.status), title: meta.label }, `${meta.icon} ${meta.label}`),
         createElement('span', { className: css.toolMeta }, `通过 ${change.toolName}`),
       ),

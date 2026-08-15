@@ -160,10 +160,10 @@ export function ChangeCenterSection(props: ChangeCenterSectionProps): ReactEleme
         loading
           ? createElement('div', { className: css.muted }, '加载中…')
           : sessions.length === 0
-            ? createElement('div', { className: css.muted },
-              '暂无变更会话。',
-              createElement('br'),
-              '让 agent 修改文件后,这里会出现按轮次(Turn)分组的变更。')
+            ? createElement('div', { className: baseCss.emptyState },
+              createElement('div', { className: baseCss.emptyTitle }, '暂无变更会话'),
+              createElement('div', { className: baseCss.emptyDesc },
+                '让 agent 修改文件后,这里会出现按轮次(Turn)分组的变更。'))
             : view === 'current'
               ? createElement(CurrentCard, {
                 session: newestActive,
@@ -190,8 +190,11 @@ export function ChangeCenterSection(props: ChangeCenterSectionProps): ReactEleme
               }),
       ),
       // Right: the shared review panel for the selected session.
+      // 设置变更中心 = 只读:只记录和展示内容,不设操作(readOnly)。
       session === null
-        ? createElement('div', { className: css.muted }, '请选择一个会话查看其变更')
+        ? createElement('div', { className: baseCss.emptyState },
+          createElement('div', { className: baseCss.emptyTitle }, '请选择一个会话'),
+          createElement('div', { className: baseCss.emptyDesc }, '在左侧选择会话,查看其变更记录。'))
         : createElement('div', { className: css.reviewWrap },
           createElement(ChangeReviewPanel, {
             sessionId: session.id,
@@ -203,8 +206,9 @@ export function ChangeCenterSection(props: ChangeCenterSectionProps): ReactEleme
             summary: session.summary,
             api,
             onChanged: refreshSessions,
-            // 设置区点开会话 = 明确想审查 → 默认 Review 模式。
+            // 设置区点开会话 = 明确想查看记录 → 默认 Review 模式 + 只读。
             defaultMode: 'review',
+            readOnly: true,
             onEditorDirtyChange: setEditorDirty,
           }),
         ),
