@@ -98,6 +98,16 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
       .finally(() => setBusy(false))
   }
 
+  /** 会话级「全部拒绝」:拒绝全部待审变更(Phase E 盘点补漏)。 */
+  const rejectAll = (): void => {
+    setBusy(true)
+    setAcceptError(null)
+    api.sessionAction(sessionId, 'reject-all')
+      .then(() => afterAction())
+      .catch(err => setAcceptError(err instanceof Error ? err.message : String(err)))
+      .finally(() => setBusy(false))
+  }
+
   // 面板锁:批量进行中或结果展示期间,所有单条入口(操作栏/树快速操作/编辑器保存)禁用。
   const panelLocked = busy || acceptResult !== null
 
@@ -133,7 +143,7 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
         createdAt: 0, updatedAt: 0,
       },
     }),
-    // Session-level action bar: pending badge + 全部接收并应用 + result summary.
+    // Session-level action bar: pending badge + 全部接收并应用 / 全部拒绝 + result summary.
     createElement('div', { className: css.actionBar },
       pendingCount > 0
         ? createElement('span', { className: css.pendingBadge }, `${pendingCount} 项变更待审查`)
@@ -143,6 +153,11 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
         disabled: busy || pendingCount === 0,
         className: baseCss.buttonPrimary,
       }, busy ? '处理中…' : '全部接收并应用'),
+      createElement('button', {
+        onClick: rejectAll,
+        disabled: busy || pendingCount === 0,
+        className: baseCss.buttonDanger,
+      }, '全部拒绝'),
       acceptError !== null
         ? createElement('span', { className: css.acceptError }, acceptError)
         : null,
@@ -172,6 +187,8 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
     ),
     createElement('div', { className: css.body },
       createElement(ChangeTree, {
+        // 按会话重置:切换会话时目录折叠状态与展示模式重新初始化(D-1)。
+        key: sessionId,
         changes: fileChanges,
         selected: selectedChange,
         onSelect: setSelectedChange,
