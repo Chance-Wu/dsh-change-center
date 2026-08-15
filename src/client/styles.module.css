@@ -126,6 +126,15 @@
   cursor: not-allowed;
 }
 
+/* 键盘焦点环（可访问性 + 视觉统一） */
+.buttonPrimary:focus-visible,
+.buttonDanger:focus-visible,
+.buttonGhost:focus-visible,
+.buttonMini:focus-visible {
+  outline: 2px solid var(--dsw-alias-state-business-primary);
+  outline-offset: 2px;
+}
+
 /* 紧凑行内按钮（h24 r6，树行快捷操作等） */
 .btnSm {
   display: inline-flex;

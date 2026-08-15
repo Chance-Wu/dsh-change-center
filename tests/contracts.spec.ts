@@ -167,6 +167,29 @@ describe('B + C. Apply / Rollback 契约(真实文件系统)', () => {
     expect(ctx.changeCenter.get(id)?.status).toBe('applied')
     expect(readFileSync(target, 'utf8')).toBe('changed\n')
   })
+
+  it('应用→回滚→重新应用 闭环(diskBaseline 守卫不误判外部修改)', async () => {
+    const ctx = await fullSetup()
+    const target = join(tempDir, 'cycle.txt')
+    // 捕获发生在写盘之后:record 前磁盘已是 after。
+    writeFileSync(target, 'changed\n')
+    const id = recordFile(ctx, 'cycle-1', target, { before: 'original\n', after: 'changed\n' })
+    // 第一次应用:守卫(基线=after)通过,写入 after(幂等)。
+    const applied = await ctx.changeCenter.apply(id)
+    expect(applied.kind).toBe('applied')
+    expect(ctx.changeCenter.get(id)?.status).toBe('applied')
+    expect(readFileSync(target, 'utf8')).toBe('changed\n')
+    // 回滚:磁盘恢复 before,基线更新为 before。
+    const rolled = await ctx.changeCenter.rollback(id)
+    expect(rolled.kind).toBe('rolled-back')
+    expect(readFileSync(target, 'utf8')).toBe('original\n')
+    expect(ctx.changeCenter.get(id)?.status).toBe('rolled_back')
+    // 重新应用:磁盘=before=基线,不应被守卫误判为外部修改。
+    const reapplied = await ctx.changeCenter.apply(id)
+    expect(reapplied.kind).toBe('applied')
+    expect(readFileSync(target, 'utf8')).toBe('changed\n')
+    expect(ctx.changeCenter.get(id)?.status).toBe('applied')
+  })
 })
 
 describe('D. Batch 契约', () => {

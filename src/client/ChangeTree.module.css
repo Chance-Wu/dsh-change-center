@@ -408,11 +408,6 @@
   font-size: var(--dsw-font-xxxs-11);
   font-weight: 600;
 }
-.riskLow {
-  composes: riskChip;
-  color: var(--dsw-alias-state-success-primary);
-  background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 10%, transparent);
-}
 .riskMedium {
   composes: riskChip;
   color: var(--dsw-alias-state-warn-primary);

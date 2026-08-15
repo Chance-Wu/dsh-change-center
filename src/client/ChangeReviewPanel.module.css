@@ -34,11 +34,6 @@
   gap: 3px;
 }
 
-.headerLine {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
 
 .headerTitle {
   font-size: var(--dsw-font-m-16);
@@ -307,12 +302,6 @@
   font-weight: 600;
 }
 
-.batchOps {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
 
 .pendingBadge {
   font-size: var(--dsw-font-xxs-12);
