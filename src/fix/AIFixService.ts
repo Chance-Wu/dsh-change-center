@@ -17,7 +17,7 @@ import type {} from '@deepseek-ai/dsh-agent-default-model'
 import { BlockAssembler, createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { FixRequest, FixResult } from '../models/Phase4.ts'
 import type { ReviewFinding } from '../models/Phase3.ts'
-import type { ChangeService } from '../services/ChangeService.ts'
+import type { ActionError, ChangeService } from '../services/ChangeService.ts'
 import type { FileChange } from '../models/FileChange.ts'
 
 declare module '@deepseek-ai/cordis' {
@@ -143,6 +143,12 @@ export class AIFixService extends Service {
       }
       // Record the fix as a new pending change (never write to disk here).
       const updated = changes.edit(change.id, fixed)
+      if (isEditError(updated)) {
+        request.status = 'failed'
+        request.resultSummary = updated.message
+        request.updatedAt = Date.now()
+        return { fixRequestId: request.id, changeIds: [], summary: request.resultSummary }
+      }
       request.status = 'completed'
       request.resultSummary = `Fixed ${change.path} (${change.id} reset to pending)`
       request.updatedAt = Date.now()
@@ -167,4 +173,9 @@ export function extractFencedContent(text: string): string | undefined {
   // Fallback: the whole text if it is not empty and looks like file content.
   const trimmed = text.trim()
   return trimmed.length > 0 ? trimmed : undefined
+}
+
+/** Narrow an edit result to its error variant (edit 结构化错误,不抛). */
+function isEditError(result: FileChange | ActionError): result is ActionError {
+  return typeof result === 'object' && result !== null && (result as ActionError).kind === 'error'
 }

@@ -34,11 +34,6 @@
 }
 
 /* 发丝线分隔（列表/卡片内分组） */
-.divider {
-  border: none;
-  border-top: 1px solid var(--dsw-alias-border-l1);
-  margin: 8px 0;
-}
 
 /* 主操作按钮（小号胶囊，对齐原生 sm：h28 r14 12/18） */
 .buttonPrimary {
@@ -148,38 +143,6 @@
   cursor: pointer;
   transition: background 120ms ease, color 120ms ease;
 }
-.btnSmSuccess {
-  composes: btnSm;
-  color: var(--dsw-alias-state-success-primary);
-  background: transparent;
-}
-.btnSmSuccess:hover {
-  background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 10%, transparent);
-}
-.btnSmBusiness {
-  composes: btnSm;
-  color: var(--dsw-alias-state-business-primary);
-  background: transparent;
-}
-.btnSmBusiness:hover {
-  background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 10%, transparent);
-}
-.btnSmDanger {
-  composes: btnSm;
-  color: var(--dsw-alias-state-error-primary);
-  background: transparent;
-}
-.btnSmDanger:hover {
-  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 10%, transparent);
-}
-.btnSmGhost {
-  composes: btnSm;
-  color: var(--dsw-alias-label-secondary);
-  background: transparent;
-}
-.btnSmGhost:hover {
-  background: var(--dsw-alias-interactive-bg-hover);
-}
 
 /* 输入框规范（h32 r8，对齐原生 Input） */
 .input {
@@ -238,12 +201,6 @@
   border-color: transparent;
 }
 
-.badgeBusiness {
-  composes: badge;
-  color: var(--dsw-alias-state-business-primary);
-  background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 12%, transparent);
-  border-color: transparent;
-}
 
 /* 小标签 chip（r4-6：策略动作、git 状态、severity 等） */
 .chip {
@@ -256,49 +213,6 @@
   font-weight: 600;
   white-space: nowrap;
 }
-.chipOk {
-  composes: chip;
-  color: var(--dsw-alias-state-success-primary);
-  background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 12%, transparent);
-}
-.chipWarn {
-  composes: chip;
-  color: var(--dsw-alias-state-warn-primary);
-  background: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 12%, transparent);
-}
-.chipError {
-  composes: chip;
-  color: var(--dsw-alias-state-error-primary);
-  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, transparent);
-}
-.chipBusiness {
-  composes: chip;
-  color: var(--dsw-alias-state-business-primary);
-  background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 12%, transparent);
-}
-.chipNeutral {
-  composes: chip;
-  color: var(--dsw-alias-label-secondary);
-  background: var(--dsw-alias-bg-layer-3);
-}
-
-/* 加载环（10px，对齐 TrajectoryTable spinner） */
-.spinner {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  border: 1.5px solid var(--dsw-alias-border-l2);
-  border-top-color: var(--dsw-alias-state-business-primary);
-  animation: dshSpinnerRotate 700ms linear infinite;
-}
-@keyframes dshSpinnerRotate {
-  to { transform: rotate(360deg); }
-}
-@media (prefers-reduced-motion: reduce) {
-  .spinner {
-    animation: none;
-  }
-}
 
 /* 统一空态：图标 + 标题 + 说明（居中列） */
 .emptyState {
@@ -310,11 +224,6 @@
   padding: 24px 16px;
   text-align: center;
   color: var(--dsw-alias-label-tertiary);
-}
-.emptyIcon {
-  color: var(--dsw-alias-label-tertiary);
-  opacity: 0.7;
-  margin-bottom: 2px;
 }
 .emptyTitle {
   font-size: var(--dsw-font-s-14);

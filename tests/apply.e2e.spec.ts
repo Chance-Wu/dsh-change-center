@@ -189,8 +189,11 @@ describe('Apply Engine e2e', () => {
     const result = await ctx.changeCenter.apply(change.id)
     expect(result.kind).toBe('applied')
     expect(ctx.changeCenter.get(change.id)?.status).toBe('applied')
-    // Editing an applied change would desync the record from disk.
-    expect(() => ctx.changeCenter.edit(change.id, 'edited\n')).toThrow(/roll back first/)
+    // Editing an applied change would desync the record from disk:
+    // 结构化错误,不抛 500。
+    const err = ctx.changeCenter.edit(change.id, 'edited\n')
+    expect(err).toMatchObject({ kind: 'error' })
+    expect((err as { message: string }).message).toContain('roll back first')
   })
 
   it('accept-all-and-apply applies every pending change', async () => {

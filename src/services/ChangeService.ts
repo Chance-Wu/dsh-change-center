@@ -349,13 +349,13 @@ export class ChangeService extends Service {
    * the workspace already holds the old content, so a silent `after` change
    * would desync the record from disk — roll back first.
    */
-  edit(id: string, after: string): FileChange {
+  edit(id: string, after: string): FileChange | ActionError {
     const change = this.changes.get(id)
     if (change === undefined) {
-      throw new Error(`change-center: unknown change "${id}"`)
+      return actionError(new Error(`change-center: unknown change "${id}"`))
     }
     if (change.status === 'applied') {
-      throw new Error(`change-center: cannot edit "${id}" while applied — roll back first`)
+      return actionError(new Error(`change-center: cannot edit "${id}" while applied — roll back first`))
     }
     change.after = after
     change.diff = renderUnified(change.before, change.after)
@@ -442,6 +442,9 @@ export class ChangeService extends Service {
           continue
         }
         if (preview.kind === 'error') {
+          // 与冲突分支一致:预检失败也标记 failed,避免变更停留 pending。
+          this.transition(change.id, 'failed')
+          this.ctx.emit('change.updated', change, preview.message)
           result.failed.push({ id: change.id, message: preview.message })
           continue
         }

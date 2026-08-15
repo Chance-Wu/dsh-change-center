@@ -19,9 +19,3 @@
   padding: 24px;
 }
 
-.emptyText {
-  font-size: var(--dsw-font-xs-13);
-  color: var(--dsw-alias-label-secondary);
-  text-align: center;
-  line-height: 1.6;
-}
