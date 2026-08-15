@@ -76,10 +76,10 @@ function actionError(error: unknown): ActionError {
  * Result of {@link ChangeService.acceptAllAndApply}.
  *
  * The counters partition the session's changes into disjoint categories:
- * `applied + failed` = pending changes actually processed, `skipped` = other
- * non-pending changes, `superseded` = older writes to a path whose newer
- * change was processed. `approved` reports the (transient) approval of each
- * processed pending change and may overlap `applied`/`failed`.
+ * `applied + failed + blocked` = pending changes actually processed, `skipped`
+ * = other non-pending changes, `superseded` = older writes to a path whose
+ * newer change was processed. `approved` reports the (transient) approval of
+ * each processed pending change and may overlap `applied`/`failed`.
  */
 export interface AcceptAllResult {
   /** Pending changes approved during this run (may overlap applied/failed). */
@@ -92,6 +92,11 @@ export interface AcceptAllResult {
   superseded: string[]
   /** Changes that failed to apply, with a reason. */
   failed: { id: string; message: string }[]
+  /**
+   * Changes held back by a deny policy: left pending, not applied, until the
+   * policy is adjusted or the change is handled individually.
+   */
+  blocked: { id: string; message: string }[]
 }
 
 /** Valid transition map of the review state machine. */
@@ -157,7 +162,7 @@ export class ChangeService extends Service {
     void this.ensureLoaded().then(() => this.store.save([...this.changes.values()]))
   }
 
-  /** Record a captured change and emit `change:created`. */
+  /** Record a captured change and emit `change.created`. */
   record(input: NewFileChange): FileChange {
     void this.ensureLoaded()
     const change: FileChange = {
@@ -178,7 +183,7 @@ export class ChangeService extends Service {
       updatedAt: Date.now(),
     }
     this.changes.set(change.id, change)
-    this.ctx.emit('change:created', change)
+    this.ctx.emit('change.created', change)
     this.persist()
     return change
   }
@@ -219,7 +224,7 @@ export class ChangeService extends Service {
   approve(id: string): FileChange | ActionError {
     try {
       const change = this.transition(id, 'approved')
-      this.ctx.emit('change:approved', change)
+      this.ctx.emit('change.updated', change)
       return change
     } catch (error) {
       return actionError(error)
@@ -230,7 +235,7 @@ export class ChangeService extends Service {
   reject(id: string): FileChange | ActionError {
     try {
       const change = this.transition(id, 'rejected')
-      this.ctx.emit('change:rejected', change)
+      this.ctx.emit('change.updated', change)
       return change
     } catch (error) {
       return actionError(error)
@@ -269,7 +274,7 @@ export class ChangeService extends Service {
     // marks it applied directly (the agent already ran the command live).
     if (change.kind !== 'file') {
       this.transition(id, 'applied')
-      this.ctx.emit('change:applied', change)
+      this.ctx.emit('change.updated', change)
       return { kind: 'applied', operation: 'execute' }
     }
     const applyEngine: ApplyService | undefined = this.ctx.get('applyEngine')
@@ -277,7 +282,7 @@ export class ChangeService extends Service {
     if (applyEngine === undefined || snapshots === undefined) {
       const message = 'apply engine unavailable (ApplyService/SnapshotService not mounted)'
       this.transition(id, 'failed')
-      this.ctx.emit('change:failed', change, message)
+      this.ctx.emit('change.updated', change, message)
       return { kind: 'error', message }
     }
     try {
@@ -285,19 +290,19 @@ export class ChangeService extends Service {
       const result = await applyEngine.apply(change, force)
       if (result.kind === 'applied') {
         this.transition(id, 'applied')
-        this.ctx.emit('change:applied', change)
+        this.ctx.emit('change.updated', change)
       } else if (result.kind === 'conflict') {
         this.transition(id, 'failed')
-        this.ctx.emit('change:failed', change, 'external modification detected')
+        this.ctx.emit('change.updated', change, 'external modification detected')
       } else {
         this.transition(id, 'failed')
-        this.ctx.emit('change:failed', change, result.message)
+        this.ctx.emit('change.updated', change, result.message)
       }
       return result
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       this.transition(id, 'failed')
-      this.ctx.emit('change:failed', change, message)
+      this.ctx.emit('change.updated', change, message)
       return { kind: 'error', message }
     }
   }
@@ -317,20 +322,23 @@ export class ChangeService extends Service {
     const result = await snapshots.rollback(change)
     if (result.kind === 'rolled-back') {
       this.transition(id, 'rolled_back')
-      this.ctx.emit('change:rollback', change)
+      this.ctx.emit('change.updated', change)
     }
     return result
   }
 
   /**
-   * Roll back every APPLIED change in a session (the counterpart to
-   * acceptAllAndApply). Failures and missing snapshots do not interrupt the
-   * rest; non-applied changes are out of scope.
+   * Roll back every APPLIED FILE change in a session (the counterpart to
+   * acceptAllAndApply). Command/external changes are approval markers — they
+   * never wrote to the workspace, so there is nothing to restore and no
+   * snapshot exists; they are skipped rather than reported as missing.
+   * Failures and missing snapshots do not interrupt the rest.
    */
   async rollbackAll(sessionId: string): Promise<RollbackAllResult> {
     const result: RollbackAllResult = { rolledBack: [], missing: [], failed: [] }
     for (const change of this.listBySession(sessionId)) {
       if (change.status !== 'applied') continue
+      if (change.kind !== 'file') continue
       const outcome = await this.rollback(change.id)
       if (outcome.kind === 'rolled-back') {
         result.rolledBack.push(change.id)
@@ -399,10 +407,18 @@ export class ChangeService extends Service {
    * writes to the same file (the review surface shows only the latest) are
    * reported as `superseded` so a bulk apply never re-writes an older
    * intermediate state, and the result counters stay disjoint.
+   *
+   * Policy gating: when the policy engine is mounted, a pending change hit by
+   * a `deny` policy is NOT applied — it stays pending and lands in `blocked`
+   * (the user can adjust the policy or handle the change individually).
+   *
+   * @param force - bypass the deny gate and the external-modification guard
+   *   (Vibe UI 「仍然全部应用」); mirrors the single-change `apply(force)`.
    */
-  async acceptAllAndApply(sessionId: string): Promise<AcceptAllResult> {
-    const result: AcceptAllResult = { approved: [], applied: [], skipped: [], superseded: [], failed: [] }
+  async acceptAllAndApply(sessionId: string, force = false): Promise<AcceptAllResult> {
+    const result: AcceptAllResult = { approved: [], applied: [], skipped: [], superseded: [], failed: [], blocked: [] }
     const seenPaths = new Set<string>()
+    const policies = this.ctx.get('policies')
     for (const change of this.listBySession(sessionId)) {
       if (seenPaths.has(change.path)) {
         result.superseded.push(change.id)
@@ -413,6 +429,14 @@ export class ChangeService extends Service {
         result.skipped.push(change.id)
         continue
       }
+      if (!force && policies !== undefined) {
+        const evaluations = await policies.evaluate([change])
+        const denial = evaluations.find(evaluation => evaluation.action === 'deny')
+        if (denial !== undefined) {
+          result.blocked.push({ id: change.id, message: `${denial.policyId}: ${denial.reason}` })
+          continue
+        }
+      }
       const approval = this.approve(change.id)
       if (isActionError(approval)) {
         // Should not happen (pending → approved is legal), but never crash.
@@ -420,7 +444,7 @@ export class ChangeService extends Service {
         continue
       }
       result.approved.push(change.id)
-      const outcome = await this.apply(change.id)
+      const outcome = await this.apply(change.id, force)
       if (outcome.kind === 'applied') {
         result.applied.push(change.id)
       } else {

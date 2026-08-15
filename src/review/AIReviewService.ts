@@ -9,14 +9,17 @@
  * @module dsh-change-center/review
  */
 
+import { join } from 'node:path'
 import { Service } from '@deepseek-ai/cordis'
 import type { Context } from '@deepseek-ai/cordis'
 // Type-only: pulls `ctx.llm`, `ctx.agentDefaultModel`, and message helpers.
 import type {} from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-agent-default-model'
 import { BlockAssembler, createUserMessage } from '@deepseek-ai/dsh-llm'
+import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import type { ReviewFinding, ReviewResult, RiskLevel } from '../models/Phase3.ts'
 import type { SessionService } from '../services/SessionService.ts'
+import { PLUGIN_STATE_POLICY } from '../services/pluginFs.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -44,9 +47,43 @@ interface RawFinding {
 export class AIReviewService extends Service {
   private readonly results = new Map<string, ReviewResult>()
   private nextFindingId = 1
+  private loadPromise: Promise<void> | undefined
+  private readonly root: string
 
   constructor(ctx: Context) {
     super(ctx, 'aiReview')
+    this.root = join(resolveDshHome(), 'change-center', 'review')
+    // 冷启动:把持久化的审查结果读回内存(失败静默,内存仍可用)。
+    this.ensureLoaded()
+  }
+
+  /** Load persisted reviews once; safe to call repeatedly. */
+  ensureLoaded(): Promise<void> {
+    if (this.loadPromise === undefined) {
+      this.loadPromise = this.loadFromDisk().catch(() => undefined)
+    }
+    return this.loadPromise
+  }
+
+  private async loadFromDisk(): Promise<void> {
+    const fs = this.ctx.get('fs')
+    if (fs === undefined) return
+    const rootTarget = await fs.resolve(this.root)
+    const entries = await fs.listDir(rootTarget)
+    for (const entry of entries) {
+      if (entry.type !== 'file' || !entry.name.endsWith('.json')) continue
+      try {
+        const parsed = JSON.parse(await fs.readText(entry.target)) as ReviewResult
+        if (typeof parsed.sessionId !== 'string') continue
+        this.results.set(parsed.sessionId, parsed)
+        for (const finding of parsed.findings) {
+          const match = /^finding-(\d+)$/.exec(finding.id)
+          if (match !== null) this.nextFindingId = Math.max(this.nextFindingId, Number(match[1]) + 1)
+        }
+      } catch {
+        // Skip corrupt review files.
+      }
+    }
   }
 
   /** The stored review for a session, if one exists. */
@@ -109,9 +146,30 @@ export class AIReviewService extends Service {
       .join('')
     const parsed = parseReviewJson(text, sessionId, () => `finding-${this.nextFindingId++}`)
     this.results.set(sessionId, parsed)
-    this.ctx.emit('change:reviewed', parsed)
+    this.persist(sessionId, parsed)
+    this.ctx.emit('review.completed', parsed)
     return parsed
   }
+
+  /** Best-effort write of one review to $DSH_HOME/change-center/review/. */
+  private persist(sessionId: string, result: ReviewResult): void {
+    const fs = this.ctx.get('fs')
+    if (fs === undefined) return
+    void (async () => {
+      try {
+        const target = await fs.resolve(join(this.root, safe(sessionId) + '.json'))
+        // 插件自有状态:$DSH_HOME 不在会话沙箱 writableRoots 内,显式放行。
+        await fs.writeText(target, JSON.stringify(result), undefined, undefined, PLUGIN_STATE_POLICY)
+      } catch {
+        // Best-effort persistence: the in-memory result remains authoritative.
+      }
+    })()
+  }
+}
+
+/** Neutralize path separators so session ids cannot traverse out. */
+function safe(segment: string): string {
+  return segment.replace(/[/\\]/g, '_')
 }
 
 /**

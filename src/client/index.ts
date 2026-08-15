@@ -102,6 +102,22 @@ export type WireHistoryEvent = ChangeEvent
 /** Wire shape of a change policy — the host {@link ChangePolicy}. */
 export type WirePolicy = ChangePolicy
 
+/** Wire shape of one policy evaluation against a session's changes. */
+export interface WirePolicyEvaluation {
+  policyId: string
+  /** 与宿主 PolicyAction 对齐（策略引擎只有 allow/warn/deny）。 */
+  action: 'allow' | 'warn' | 'deny'
+  reason: string
+}
+
+/** Wire shape of one policy hit against a SINGLE change (S-6: ⛔ 逐变更标记). */
+export interface WirePolicyHit {
+  changeId: string
+  policyId: string
+  action: 'allow' | 'warn' | 'deny'
+  reason: string
+}
+
 /** Wire shape of a fix request — the host {@link FixRequest}. */
 export type WireFixRequest = FixRequest
 
@@ -114,16 +130,29 @@ export type WireJob = Job
 /** A subscription handle; call it to stop receiving events. */
 export type Unsubscribe = () => void
 
+/** Pagination parameters the host routes accept (limit/offset + total). */
+export interface PageParams {
+  limit?: number
+  offset?: number
+}
+
+/** One paginated page: the items plus the full collection size. */
+export interface WirePage<T> {
+  items: T[]
+  total: number
+}
+
 /** Minimal API surface the section consumes. */
 export interface ChangeCenterApi {
-  listChanges(): Promise<WireChange[]>
-  listSessions(): Promise<WireSession[]>
-  sessionChanges(sessionId: string): Promise<WireChange[]>
+  listChanges(params?: PageParams): Promise<WirePage<WireChange>>
+  listSessions(params?: PageParams): Promise<WirePage<WireSession>>
+  sessionChanges(sessionId: string, params?: PageParams): Promise<WirePage<WireChange>>
   changeAction(id: string, action: 'approve' | 'reject' | 'rollback' | 'repend'): Promise<ActionResult>
   applyChange(id: string, force?: boolean): Promise<ActionResult>
   editChange(id: string, after: string): Promise<unknown>
   sessionAction(sessionId: string, action: 'accept-all' | 'reject-all'): Promise<{ updated: string[] }>
-  acceptAllAndApply(sessionId: string): Promise<WireAcceptAllResult>
+  /** 全部接收并应用;force 时绕过 deny 门禁与外部修改守卫(「仍然全部应用」)。 */
+  acceptAllAndApply(sessionId: string, force?: boolean): Promise<WireAcceptAllResult>
   rollbackAll(sessionId: string): Promise<WireRollbackAllResult>
   gitStatus(sessionId: string): Promise<GitResponse>
   gitDiff(sessionId: string): Promise<GitResponse>
@@ -137,6 +166,7 @@ export interface ChangeCenterApi {
   history(sessionId: string): Promise<WireHistoryEvent[]>
   timeline(sessionId: string): Promise<{ events: WireHistoryEvent[] }>
   policies(): Promise<WirePolicy[]>
+  policyEvaluation(sessionId: string): Promise<{ evaluations: WirePolicyEvaluation[]; hits: WirePolicyHit[] }>
   policySave(policy: WirePolicy): Promise<WirePolicy[]>
   policyDelete(id: string): Promise<WirePolicy[]>
   fixList(sessionId: string): Promise<WireFixRequest[]>
@@ -146,7 +176,22 @@ export interface ChangeCenterApi {
   jobCancel(id: string): Promise<{ job: WireJob | null }>
   sessionJobs(sessionId: string): Promise<{ jobs: WireJob[] }>
   /** Subscribe to the host event stream; returns an unsubscribe handle. */
-  subscribeEvents(onEvent: (event: string) => void): Unsubscribe
+  subscribeEvents(onEvent: (event: SseEvent) => void): Unsubscribe
+}
+
+/**
+ * One SSE event payload (Vibe Flow unified model, 2.2 L-1). The host forwards
+ * normalized `{event, changeId?, sessionId?, status?, jobId?, ...}` objects so
+ * subscribers can patch state incrementally instead of refetching.
+ */
+export interface SseEvent {
+  event: string
+  changeId?: string
+  sessionId?: string
+  path?: string
+  status?: string
+  jobId?: string
+  error?: string
 }
 
 /**
@@ -156,10 +201,12 @@ export interface ChangeCenterApi {
  */
 export function apiOf(): ChangeCenterApi {
   return {
-    listChanges: () => getJson('/api/change-center/changes').then(body => (body as { changes: WireChange[] }).changes),
-    listSessions: () => getJson('/api/change-center/sessions').then(body => (body as { sessions: WireSession[] }).sessions),
-    sessionChanges: (sessionId) =>
-      getJson(`/api/change-center/sessions/${sessionId}/changes`).then(body => (body as { changes: WireChange[] }).changes),
+    listChanges: (params) => getJson(pageUrl('/api/change-center/changes', params))
+      .then(body => toPage((body as { changes: WireChange[]; total: number }).changes, body as { total: number })),
+    listSessions: (params) => getJson(pageUrl('/api/change-center/sessions', params))
+      .then(body => toPage((body as { sessions: WireSession[]; total: number }).sessions, body as { total: number })),
+    sessionChanges: (sessionId, params) => getJson(pageUrl(`/api/change-center/sessions/${sessionId}/changes`, params))
+      .then(body => toPage((body as { changes: WireChange[]; total: number }).changes, body as { total: number })),
     changeAction: (id, action) =>
       postJson(`/api/change-center/changes/${id}/${action}`).then(body => body as ActionResult),
     applyChange: (id, force) =>
@@ -167,8 +214,8 @@ export function apiOf(): ChangeCenterApi {
     editChange: (id, after) => postJson(`/api/change-center/changes/${id}/edit`, { after }),
     sessionAction: (sessionId, action) =>
       postJson(`/api/change-center/sessions/${sessionId}/${action}`).then(body => body as { updated: string[] }),
-    acceptAllAndApply: (sessionId) =>
-      postJson(`/api/change-center/sessions/${sessionId}/accept-all-apply`).then(body => (body as { result: WireAcceptAllResult }).result),
+    acceptAllAndApply: (sessionId, force) =>
+      postJson(`/api/change-center/sessions/${sessionId}/accept-all-apply${force ? '?force=1' : ''}`).then(body => (body as { result: WireAcceptAllResult }).result),
     rollbackAll: (sessionId) =>
       postJson(`/api/change-center/sessions/${sessionId}/rollback-all`).then(body => (body as { result: WireRollbackAllResult }).result),
     gitStatus: (sessionId) => getJson(`/api/change-center/sessions/${sessionId}/git`).then(body => body as GitResponse),
@@ -195,6 +242,12 @@ export function apiOf(): ChangeCenterApi {
     timeline: (sessionId) =>
       getJson(`/api/change-center/sessions/${sessionId}/history/timeline`).then(body => body as { events: WireHistoryEvent[] }),
     policies: () => getJson('/api/change-center/policies').then(body => (body as { policies: WirePolicy[] }).policies),
+    policyEvaluation: (sessionId) =>
+      getJson(`/api/change-center/sessions/${sessionId}/policy-evaluation`)
+        .then(body => ({
+          evaluations: (body as { evaluations: WirePolicyEvaluation[] }).evaluations,
+          hits: (body as { hits?: WirePolicyHit[] }).hits ?? [],
+        })),
     policySave: (policy) => postJson('/api/change-center/policies', policy).then(body => (body as { policies: WirePolicy[] }).policies),
     policyDelete: (id) => postJson(`/api/change-center/policies/${id}/delete`).then(body => (body as { policies: WirePolicy[] }).policies),
     fixList: (sessionId) =>
@@ -211,14 +264,52 @@ export function apiOf(): ChangeCenterApi {
     jobCancel: (id) => postJson(`/api/change-center/jobs/${id}/cancel`).then(body => body as { job: WireJob | null }),
     sessionJobs: (sessionId) =>
       getJson(`/api/change-center/sessions/${sessionId}/jobs`).then(body => body as { jobs: WireJob[] }),
-    subscribeEvents: (onEvent) => {
-      const source = new EventSource('/api/change-center/events')
-      for (const name of ['change:created', 'change-session:created', 'change-session:status', 'job:settled']) {
-        source.addEventListener(name, () => onEvent(name))
-      }
-      return () => source.close()
-    },
+    subscribeEvents: (onEvent) => subscribeSse(onEvent),
   }
+}
+
+/** Events the client listens for on the shared SSE stream (2.2 unified model). */
+const SSE_EVENT_NAMES = [
+  'change.created', 'change.updated',
+  'session.created', 'session.updated', 'session.completed',
+  'job.started', 'job.settled',
+] as const
+
+/**
+ * One shared EventSource for the whole client: panels, lists and job handles
+ * all multiplex over a single connection. Auto-reconnects; a missed event is
+ * covered by the slow poll backstop in {@link submitJobHandle} and the next
+ * event.
+ */
+let sseSource: EventSource | null = null
+let sseListeners = new Set<(event: SseEvent) => void>()
+
+function dispatchSse(event: SseEvent): void {
+  for (const listener of sseListeners) listener(event)
+}
+
+function ensureSse(): void {
+  if (sseSource !== null) return
+  if (typeof EventSource === 'undefined') return // headless/test environment
+  sseSource = new EventSource('/api/change-center/events')
+  for (const name of SSE_EVENT_NAMES) {
+    sseSource.addEventListener(name, (raw) => {
+      let payload: SseEvent
+      try {
+        payload = JSON.parse((raw as MessageEvent).data) as SseEvent
+      } catch {
+        payload = { event: name }
+      }
+      dispatchSse(payload)
+    })
+  }
+}
+
+/** Subscribe to the shared SSE stream; returns an unsubscribe handle. */
+export function subscribeSse(onEvent: (event: SseEvent) => void): Unsubscribe {
+  ensureSse()
+  sseListeners.add(onEvent)
+  return () => { sseListeners.delete(onEvent) }
 }
 
 /** A running background job handle: await `done`, or cancel it. */
@@ -231,8 +322,9 @@ export interface JobHandle<T> {
 }
 
 /**
- * Submit a background job and return a handle immediately: `done` polls the
- * job endpoint until it settles, `cancel` aborts it via the jobs API.
+ * Submit a background job and return a handle immediately: `done` resolves on
+ * the `job.settled` SSE event (one GET to fetch the result), with a slow poll
+ * backstop in case the event was missed; `cancel` aborts via the jobs API.
  */
 export function submitJobHandle<T>(
   submit: () => Promise<{ job: { id: string } }>,
@@ -241,17 +333,37 @@ export function submitJobHandle<T>(
 ): Promise<JobHandle<T>> {
   return submit().then(({ job }) => {
     let cancelled = false
+    let settled = false
     const done = new Promise<T>((resolve, reject) => {
+      /** 事件驱动快路径:job.settled → 单次 GET 取结果并结算。 */
+      const finish = (): void => {
+        if (settled) return
+        void getJson(`/api/change-center/jobs/${job.id}`)
+          .then(body => {
+            const current = (body as { job: { status: string; result?: unknown; error?: string } }).job
+            settled = true
+            unsubscribe()
+            if (current.status === 'completed') resolve(unwrap(current))
+            else if (current.status === 'failed') reject(new Error(current.error ?? 'change-center: job failed'))
+            else reject(new Error('change-center: job cancelled'))
+          })
+          .catch(err => { settled = true; reject(err instanceof Error ? err : new Error(String(err))) })
+      }
+      const unsubscribe = subscribeSse((event) => {
+        if (event.event === 'job.settled' && event.jobId === job.id && !settled) finish()
+      })
       const poll = async (): Promise<void> => {
         const deadline = Date.now() + timeoutMs
         for (;;) {
+          if (settled) return
           const body = await getJson(`/api/change-center/jobs/${job.id}`) as { job: { status: string; result?: unknown; error?: string } }
           const current = body.job
-          if (current.status === 'completed') { resolve(unwrap(current)); return }
-          if (current.status === 'failed') { reject(new Error(current.error ?? 'change-center: job failed')); return }
-          if (current.status === 'cancelled') { reject(new Error('change-center: job cancelled')); return }
-          if (Date.now() > deadline) { reject(new Error('change-center: job timed out')); return }
-          await new Promise(resolve2 => setTimeout(resolve2, 300))
+          if (current.status === 'completed') { settled = true; resolve(unwrap(current)); return }
+          if (current.status === 'failed') { settled = true; reject(new Error(current.error ?? 'change-center: job failed')); return }
+          if (current.status === 'cancelled') { settled = true; reject(new Error('change-center: job cancelled')); return }
+          if (Date.now() > deadline) { settled = true; reject(new Error('change-center: job timed out')); return }
+          // 低频兜底轮询:正常路径由 job.settled 事件驱动。
+          await new Promise(resolve2 => setTimeout(resolve2, 1000))
         }
       }
       void poll()
@@ -268,10 +380,25 @@ export function submitJobHandle<T>(
   })
 }
 
+/** Append limit/offset to a list endpoint path. */
+function pageUrl(path: string, params?: PageParams): string {
+  if (params === undefined) return path
+  const query = new URLSearchParams()
+  if (params.limit !== undefined) query.set('limit', String(params.limit))
+  if (params.offset !== undefined) query.set('offset', String(params.offset))
+  const encoded = query.toString()
+  return encoded.length > 0 ? `${path}?${encoded}` : path
+}
+
+/** Wrap a paginated list response into a WirePage. */
+function toPage<T>(items: T[], body: { total?: number }): WirePage<T> {
+  return { items, total: body.total ?? items.length }
+}
+
 async function getJson(path: string): Promise<unknown> {
   const response = await fetch(path)
   if (!response.ok) {
-    throw new Error(`change-center: GET ${path} failed with ${response.status}`)
+    throw new Error(`请求失败（GET ${path}，状态 ${response.status}）`)
   }
   return response.json()
 }
@@ -283,7 +410,7 @@ async function postJson(path: string, body?: unknown): Promise<unknown> {
     body: body !== undefined ? JSON.stringify(body) : undefined,
   })
   if (!response.ok) {
-    throw new Error(`change-center: POST ${path} failed with ${response.status}`)
+    throw new Error(`请求失败（POST ${path}，状态 ${response.status}）`)
   }
   return response.json()
 }

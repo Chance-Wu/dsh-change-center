@@ -24,6 +24,7 @@ import type { FileSystem } from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-fs'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import type { FileChange } from '../models/FileChange.ts'
+import { PLUGIN_STATE_POLICY, workspaceWritePolicy } from './pluginFs.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -48,12 +49,15 @@ export class SnapshotService extends Service {
   private readonly root: string
   /** Stale snapshots (older than this) are swept once per service lifetime. */
   private readonly ttlMs: number
+  /** Per-agent-session cap: keep the newest N snapshot dirs (S-5). */
+  private readonly perSessionKeep: number
   private sweepStarted = false
 
-  constructor(ctx: Context, config: { ttlMs?: number } = {}) {
+  constructor(ctx: Context, config: { ttlMs?: number; perSessionKeep?: number } = {}) {
     super(ctx, 'snapshots')
     this.root = join(resolveDshHome(), 'change-center', 'snapshots')
     this.ttlMs = config.ttlMs ?? 7 * 24 * 60 * 60 * 1000
+    this.perSessionKeep = config.perSessionKeep ?? 30
   }
 
   /**
@@ -72,10 +76,47 @@ export class SnapshotService extends Service {
     }
     if (change.before === null) {
       // Create: record absence so rollback knows to delete the file.
-      await fs.writeText(await fs.resolve(join(dir, 'absent')), '')
-      return
+      // Snapshots live under $DSH_HOME — plugin state, outside the session
+      // sandbox; without the explicit policy a default web boot denies this
+      // write and every file apply fails before it writes back.
+      await fs.writeText(await fs.resolve(join(dir, 'absent')), '', undefined, undefined, PLUGIN_STATE_POLICY)
+    } else {
+      await fs.writeText(await fs.resolve(this.fileFor(change)), change.before, undefined, undefined, PLUGIN_STATE_POLICY)
     }
-    await fs.writeText(await fs.resolve(this.fileFor(change)), change.before)
+    // S-5:每 agent 会话快照数设上限,只留最新的 N 个,磁盘有界。
+    await this.pruneSession(change.sessionId, this.perSessionKeep)
+  }
+
+  /**
+   * Prune one agent session's snapshot dir down to the newest `keep` entries
+   * (by mtime). Best-effort; never throws. Snapshot dirs are named by the
+   * change id and stored under `<root>/<safe sessionId>/`.
+   */
+  async pruneSession(sessionId: string, keep = 5): Promise<void> {
+    const fs = this.ctx.get('fs')
+    if (fs === undefined || keep <= 0) return
+    try {
+      const sessionTarget = await fs.resolve(join(this.root, safe(sessionId)))
+      const entries = await fs.listDir(sessionTarget)
+      const dirs = entries.filter(entry => entry.type === 'directory')
+      if (dirs.length <= keep) return
+      const withMtime = await Promise.all(dirs.map(async entry => {
+        let mtime = 0
+        try {
+          const info = await statPath(fs.processPath(entry.target))
+          mtime = info.mtimeMs
+        } catch {
+          // Unreadable entries sort as oldest.
+        }
+        return { entry, mtime }
+      }))
+      withMtime.sort((a, b) => b.mtime - a.mtime)
+      for (const { entry } of withMtime.slice(keep)) {
+        await rm(fs.processPath(entry.target), { recursive: true, force: true })
+      }
+    } catch {
+      // No session dir yet — nothing to prune.
+    }
   }
 
   /**
@@ -110,7 +151,9 @@ export class SnapshotService extends Service {
           return { kind: 'missing-snapshot', path: file }
         }
         const content = await fs.readText(contentTarget)
-        await fs.writeText(target, content)
+        // Restoring writes back into the change's workspace — root the fence
+        // at change.cwd (agentless calls fall back to the process cwd).
+        await fs.writeText(target, content, undefined, undefined, workspaceWritePolicy(change.cwd))
       }
       // A rolled-back change no longer needs its snapshot; the next apply
       // captures a fresh one.

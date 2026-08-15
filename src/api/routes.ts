@@ -23,12 +23,46 @@ const BODY_TOO_LARGE = 'request body exceeds 1MB limit'
 const DEFAULT_LIMIT = 100
 const MAX_LIMIT = 500
 
-/** Events forwarded to `/events` SSE clients. */
+/** Events forwarded to `/events` SSE clients (Vibe Flow unified model). */
 const SSE_EVENTS = [
-  'change:created', 'change:approved', 'change:rejected', 'change:applied',
-  'change:failed', 'change:rollback', 'change-session:created', 'change-session:status',
-  'change:reviewed', 'verification:completed', 'history:recorded', 'job:settled',
+  'change.created', 'change.updated',
+  'session.created', 'session.updated', 'session.completed',
+  'job.started', 'job.settled',
+  'review.completed', 'verification:completed', 'history:recorded', 'loop:limit-reached',
 ] as const
+
+/**
+ * Normalize one event's args into a small wire payload: the unified model
+ * carries `{event, changeId?, sessionId?, status?, ...}` so the client can
+ * patch state incrementally instead of refetching on every event.
+ */
+function ssePayload(event: string, args: unknown[]): unknown {
+  const first = args[0] as Record<string, unknown> | undefined
+  switch (event) {
+    case 'change.created': {
+      const c = first as { id?: string; sessionId?: string; path?: string; status?: string } | undefined
+      return { event, changeId: c?.id, sessionId: c?.sessionId, path: c?.path, status: c?.status }
+    }
+    case 'change.updated': {
+      const c = first as { id?: string; sessionId?: string; status?: string } | undefined
+      return { event, changeId: c?.id, sessionId: c?.sessionId, status: c?.status, error: typeof args[1] === 'string' ? args[1] : undefined }
+    }
+    case 'session.created':
+    case 'session.updated':
+    case 'session.completed': {
+      const s = first as { id?: string; status?: string } | undefined
+      return { event, sessionId: s?.id, status: s?.status }
+    }
+    case 'job.started':
+    case 'job.settled': {
+      const j = first as { id?: string; status?: string; sessionId?: string } | undefined
+      return { event, jobId: j?.id, status: j?.status, sessionId: j?.sessionId }
+    }
+    default:
+      // 辅助事件(verification/history/loop/review):原样转发,不参与统一模型。
+      return { event, args }
+  }
+}
 
 /** Currently connected SSE clients; written on every forwarded event. */
 const sseClients = new Set<ServerResponse>()
@@ -60,7 +94,7 @@ export function applyRoutes(ctx: Context): void {
     // Forward the plugin's own events to SSE subscribers on the same context.
     for (const event of SSE_EVENTS) {
       webCtx.on(event as keyof Events, ((...args: unknown[]) => {
-        const data = `event: ${event}\ndata: ${JSON.stringify(args)}\n\n`
+        const data = `event: ${event}\ndata: ${JSON.stringify(ssePayload(event, args))}\n\n`
         for (const client of sseClients) {
           try { client.write(data) } catch { /* client gone */ }
         }
@@ -81,6 +115,7 @@ type Parsed =
   | { kind: 'risk'; id: string; action: 'analyze' | 'get' }
   | { kind: 'history'; id: string; action: 'history' | 'timeline' }
   | { kind: 'fix'; id: string; action: 'run' | 'list' }
+  | { kind: 'policy-evaluation'; id: string }
   | { kind: 'loop'; id: string }
   | { kind: 'job'; id: string }
   | { kind: 'job-action'; id: string; action: 'cancel' }
@@ -116,6 +151,7 @@ const ROUTE_RULES: RouteRule[] = [
   { re: /^\/sessions\/([^/]+)\/risk\/?(analyze)?$/, build: m => ({ kind: 'risk', id: m[1]!, action: (m[2] ?? 'get') as 'analyze' | 'get' }) },
   { re: /^\/sessions\/([^/]+)\/history\/?(timeline)?$/, build: m => ({ kind: 'history', id: m[1]!, action: (m[2] ?? 'history') as 'history' | 'timeline' }) },
   { re: /^\/sessions\/([^/]+)\/fix\/?(run)?$/, build: m => ({ kind: 'fix', id: m[1]!, action: (m[2] ?? 'list') as 'run' | 'list' }) },
+  { re: /^\/sessions\/([^/]+)\/policy-evaluation$/, build: m => ({ kind: 'policy-evaluation', id: m[1]! }) },
   { re: /^\/sessions\/([^/]+)\/loop\/run$/, build: m => ({ kind: 'loop', id: m[1]! }) },
   { re: /^\/sessions\/([^/]+)\/jobs$/, build: m => ({ kind: 'session-jobs', id: m[1]! }) },
   { re: /^\/jobs\/([^/]+)$/, build: m => ({ kind: 'job', id: m[1]! }) },
@@ -154,6 +190,8 @@ function isReadRoute(parsed: Parsed): boolean {
       return parsed.action === 'get'
     case 'risk':
       return parsed.action === 'get'
+    case 'policy-evaluation':
+      return true
     case 'fix':
       return parsed.action === 'list'
     case 'job':
@@ -223,15 +261,22 @@ async function dispatch(
       return { changes: paginate(all, url), total: all.length }
     }
     case 'session-action': {
+      // Bulk operations run on the CHANGE store, which is keyed by the AGENT
+      // session id (change.sessionId from the tool capture), not the
+      // change-session id — map it the same way the history route does.
+      const session = ctx.changeSessions.get(parsed.id)
+      if (session === undefined) return { error: `unknown session "${parsed.id}"` }
+      const key = session.agentSessionId
       if (parsed.action === 'accept-all-apply') {
-        return { result: await ctx.changeCenter.acceptAllAndApply(parsed.id) }
+        const force = url.searchParams.get('force') === '1'
+        return { result: await ctx.changeCenter.acceptAllAndApply(key, force) }
       }
       if (parsed.action === 'rollback-all') {
-        return { result: await ctx.changeCenter.rollbackAll(parsed.id) }
+        return { result: await ctx.changeCenter.rollbackAll(key) }
       }
       const changes = parsed.action === 'accept-all'
-        ? ctx.changeCenter.approveAll(parsed.id)
-        : ctx.changeCenter.rejectAll(parsed.id)
+        ? ctx.changeCenter.approveAll(key)
+        : ctx.changeCenter.rejectAll(key)
       return { updated: changes.map(change => change.id) }
     }
     case 'changes': {
@@ -285,6 +330,7 @@ async function dispatch(
         ctx.verification.run(parsed.id, session.workspace, signal !== undefined ? { signal } : undefined)) }
     }
     case 'review': {
+      await ctx.aiReview.ensureLoaded()
       if (parsed.action === 'get') return { review: ctx.aiReview.get(parsed.id) ?? null }
       const session = ctx.changeSessions.get(parsed.id)
       if (session === undefined) return { error: `unknown session "${parsed.id}"` }
@@ -292,6 +338,7 @@ async function dispatch(
         ctx.aiReview.review(parsed.id, ctx.changeSessions, session.workspace, signal !== undefined ? { signal } : undefined)) }
     }
     case 'risk': {
+      await Promise.all([ctx.aiReview.ensureLoaded(), ctx.risk.ensureLoaded()])
       if (parsed.action === 'get') return { risk: ctx.risk.get(parsed.id) ?? null }
       const review = ctx.aiReview.get(parsed.id)
       return { risk: ctx.risk.analyze(parsed.id, ctx.changeCenter, review) }
@@ -314,6 +361,7 @@ async function dispatch(
       if (typeof reviewId !== 'string' || typeof findingId !== 'string' || typeof changeId !== 'string') {
         return { error: 'fix requires reviewId, findingId, and changeId' }
       }
+      await ctx.aiReview.ensureLoaded()
       const review = ctx.aiReview.get(parsed.id)
       const finding = review?.findings.find(f => f.id === findingId)
       if (finding === undefined) return { error: `unknown finding "${findingId}"` }
@@ -321,6 +369,19 @@ async function dispatch(
       if (change === undefined) return { error: `unknown change "${changeId}"` }
       return { job: ctx.jobs.submit(parsed.id, 'ai-fix', signal =>
         ctx.aiFix.fix(reviewId, finding, change, ctx.changeCenter, signal !== undefined ? { signal } : undefined)) }
+    }
+    case 'policy-evaluation': {
+      const session = ctx.changeSessions.get(parsed.id)
+      if (session === undefined) return { error: `unknown session "${parsed.id}"` }
+      // 评估当前会话的变更命中了哪些策略；风险结果（如有）一并参与。
+      const changes = ctx.changeSessions.changesOf(parsed.id)
+      await ctx.risk.ensureLoaded()
+      const risk = ctx.risk.get(parsed.id)
+      return {
+        evaluations: await ctx.policies.evaluate(changes, risk ?? undefined),
+        // S-6:逐变更命中(⛔ 徽标 + Issues 过滤)。
+        hits: await ctx.policies.evaluateAll(changes, risk ?? undefined),
+      }
     }
     case 'loop': {
       const session = ctx.changeSessions.get(parsed.id)

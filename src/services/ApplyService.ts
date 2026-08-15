@@ -21,6 +21,7 @@ import type { Context } from '@deepseek-ai/cordis'
 // Type-only: pulls the `ctx.fs` Context merge into scope.
 import type {} from '@deepseek-ai/dsh-fs'
 import type { FileChange } from '../models/FileChange.ts'
+import { workspaceWritePolicy } from './pluginFs.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -76,7 +77,16 @@ export class ApplyService extends Service {
     const conflict = this.guardConflict(change, currentText, current !== undefined, force)
     if (conflict !== undefined) return conflict
 
-    const outcome = await this.ctx.fs.writeText(target, change.after ?? '')
+    // The write-back lands in the session's own workspace: root the fence at
+    // change.cwd explicitly, or an agentless call falls back to the process
+    // cwd and a default web boot denies the write.
+    const outcome = await this.ctx.fs.writeText(
+      target,
+      change.after ?? '',
+      undefined,
+      undefined,
+      workspaceWritePolicy(change.cwd),
+    )
     return { kind: 'applied', operation: outcome.operation }
   }
 

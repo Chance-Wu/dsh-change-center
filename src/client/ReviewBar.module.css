@@ -1,4 +1,10 @@
 /* ReviewBar：审查操作栏。 */
+.wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .bar {
   display: flex;
   align-items: center;
@@ -49,8 +55,22 @@
   color: var(--dsw-alias-label-secondary);
   margin-top: 2px;
 }
+.conflictHash {
+  font-size: var(--dsw-font-xxxs-11);
+  color: var(--dsw-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
+  margin-top: 4px;
+  font-family: var(--ds-font-family-code);
+}
 .conflictActions {
   margin-top: 8px;
   display: flex;
   gap: 8px;
+}
+
+/* S-3:应用失败恢复提示 */
+.failedHint {
+  font-size: var(--dsw-font-xxxs-11);
+  color: var(--dsw-alias-label-tertiary);
+  padding: 0 2px;
 }

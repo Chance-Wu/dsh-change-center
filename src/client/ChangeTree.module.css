@@ -164,6 +164,32 @@
   color: var(--dsw-alias-state-error-primary);
 }
 
+/* 行尾状态字形（V-8）:failed 突出、applied 成功、rejected/rolled_back 弱化 */
+.statusGlyph {
+  flex: none;
+  margin-left: 6px;
+  font-weight: 700;
+  font-size: var(--dsw-font-xxxs-11);
+}
+.statusFailed {
+  composes: statusGlyph;
+  color: var(--dsw-alias-state-error-primary);
+}
+.statusApplied {
+  composes: statusGlyph;
+  color: var(--dsw-alias-state-success-primary);
+}
+.statusMuted {
+  composes: statusGlyph;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* S-6:策略 deny 的 ⛔ 徽标 */
+.statusDenied {
+  composes: statusGlyph;
+  color: var(--dsw-alias-state-error-primary);
+}
+
 /* 空树 */
 .empty {
   padding: 10px 6px;

@@ -1,0 +1,43 @@
+/**
+ * Status display metadata (Vibe UI, V-8).
+ *
+ * The host state machine keeps six statuses; the UI collapses them into a
+ * single icon + label + visual weight so `applied` reads as the main success
+ * state, `failed` stands out, and `rejected`/`rolled_back` recede. This is
+ * presentation only — the state machine and `actionsFor` are untouched.
+ * @module dsh-change-center/client
+ */
+
+import type { ChangeStatus } from '../models/FileChange.ts'
+
+/** How strongly a status should be emphasized in the UI. */
+export type StatusWeight = 'high' | 'normal' | 'low'
+
+/** Display metadata for one change status. */
+export interface StatusMeta {
+  icon: string
+  label: string
+  weight: StatusWeight
+}
+
+/**
+ * Status → icon/label/weight table:
+ * pending ●待处理 · approved ●已接受 · applied ✓已应用 · rejected ×已拒绝 ·
+ * failed !应用失败 · rolled_back ↶已回滚.
+ */
+export function statusMeta(status: ChangeStatus): StatusMeta {
+  switch (status) {
+    case 'pending':
+      return { icon: '●', label: '待处理', weight: 'normal' }
+    case 'approved':
+      return { icon: '●', label: '已接受', weight: 'normal' }
+    case 'applied':
+      return { icon: '✓', label: '已应用', weight: 'high' }
+    case 'rejected':
+      return { icon: '×', label: '已拒绝', weight: 'low' }
+    case 'rolled_back':
+      return { icon: '↶', label: '已回滚', weight: 'low' }
+    case 'failed':
+      return { icon: '!', label: '应用失败', weight: 'high' }
+  }
+}

@@ -36,6 +36,7 @@ describe('parsePath', () => {
     ['/api/change-center/sessions/s-1/fix', { kind: 'fix', id: 's-1', action: 'list' }],
     ['/api/change-center/sessions/s-1/fix/run', { kind: 'fix', id: 's-1', action: 'run' }],
     ['/api/change-center/sessions/s-1/loop/run', { kind: 'loop', id: 's-1' }],
+    ['/api/change-center/sessions/s-1/policy-evaluation', { kind: 'policy-evaluation', id: 's-1' }],
     ['/api/change-center/sessions/s-1/jobs', { kind: 'session-jobs', id: 's-1' }],
     ['/api/change-center/jobs/job-1', { kind: 'job', id: 'job-1' }],
     ['/api/change-center/jobs/job-1/cancel', { kind: 'job-action', id: 'job-1', action: 'cancel' }],

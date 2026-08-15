@@ -11,6 +11,7 @@
  */
 
 import type { FileSystem } from '@deepseek-ai/dsh-fs'
+import { PLUGIN_STATE_POLICY } from './pluginFs.ts'
 
 /**
  * A line-based JSON store for one collection of records.
@@ -62,7 +63,10 @@ export class JsonlStore<T> {
         if (fs === undefined) return
         const target = await fs.resolve(this.file)
         const body = records.length === 0 ? '' : `${records.map(record => JSON.stringify(record)).join('\n')}\n`
-        await fs.writeText(target, body)
+        // Plugin-owned state under $DSH_HOME is outside the session's
+        // file-effect boundary — carry the explicit policy so the host's
+        // sandboxed backend does not fence the write.
+        await fs.writeText(target, body, undefined, undefined, PLUGIN_STATE_POLICY)
       } catch {
         // Best-effort persistence: the in-memory store remains authoritative.
       }

@@ -15,6 +15,7 @@ import { ChangeService } from '../src/services/ChangeService.ts'
 import { SessionService } from '../src/services/SessionService.ts'
 import { ApplyService } from '../src/services/ApplyService.ts'
 import { SnapshotService } from '../src/services/SnapshotService.ts'
+import { removeDirSafe } from './helpers/removeDir.ts'
 
 let tempDir: string
 
@@ -22,8 +23,8 @@ beforeAll(() => {
   tempDir = mkdtempSync(join(tmpdir(), 'dsh-change-center-session-'))
 })
 
-afterAll(() => {
-  rmSync(tempDir, { recursive: true, force: true })
+afterAll(async () => {
+  await removeDirSafe(tempDir)
 })
 
 async function setup(): Promise<{ ctx: Context; session: Session }> {
@@ -93,6 +94,23 @@ describe('SessionService turn lifecycle', () => {
     expect(changeSession.changeIds).toHaveLength(2)
     // 1 insertion + 2 additions = 3; 0 deletions.
     expect(changeSession.statistics).toEqual({ files: 2, additions: 3, deletions: 0 })
+  })
+
+  it('derives a natural-language summary from paths and operations (S-8)', async () => {
+    const { ctx, session } = await setup()
+    session.append('turn/start', { turn: 1 })
+
+    ctx.changeCenter.record({
+      sessionId: 'agent-1', cwd: tempDir, path: `${tempDir}/src/auth/token.ts`,
+      operation: 'modify', before: 'x\n', after: 'y\n', source: 'agent', toolName: 'edit',
+    })
+    ctx.changeCenter.record({
+      sessionId: 'agent-1', cwd: tempDir, path: `${tempDir}/src/auth/service.ts`,
+      operation: 'create', before: null, after: 'z\n', source: 'agent', toolName: 'write',
+    })
+
+    const changeSession = ctx.changeSessions.list()[0]!
+    expect(changeSession.summary).toBe('修改 src/auth 下 2 个文件')
   })
 
   it('falls back to a group when a change arrives without turn/start', async () => {

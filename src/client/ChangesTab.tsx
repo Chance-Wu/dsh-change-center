@@ -31,11 +31,12 @@ export function ChangesTab(props: ChangesTabProps): ReactElement {
   const [error, setError] = useState<string | null>(null)
 
   const refresh = (): void => {
-    api.listSessions()
-      .then(list => {
+    // 会话列表按 updatedAt 倒序，当前会话的变更集永远在前页；limit 兜底防截断。
+    api.listSessions({ limit: 200 })
+      .then(page => {
         // 同一 agent 会话多次 turn 会生成多个 change session（agentSessionId
         // 相同）；取最近更新（updatedAt 最大）的那个，避免匹配到旧空会话。
-        const matches = list
+        const matches = page.items
           .filter(s => s.agentSessionId === sessionId)
           .sort((a, b) => b.updatedAt - a.updatedAt)
         setSession(matches[0] ?? null)
@@ -74,8 +75,11 @@ export function ChangesTab(props: ChangesTabProps): ReactElement {
       agentSessionId: session.agentSessionId,
       workspace: session.workspace,
       statistics: session.statistics,
+      summary: session.summary,
       api,
       onChanged: refresh,
+      // V-2:conversation 标签页默认 Focus(极简「当前 Turn」),点「查看变更」展开。
+      defaultMode: 'focus',
     }),
   )
 }

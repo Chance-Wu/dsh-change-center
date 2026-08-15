@@ -11,6 +11,7 @@ import { Context } from '@deepseek-ai/cordis'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import { HistoryService } from '../src/history/HistoryService.ts'
 import { ChangeService } from '../src/services/ChangeService.ts'
+import { removeDirSafe } from './helpers/removeDir.ts'
 
 /** Poll until `check` is true (the async persist chains flush to disk). */
 async function waitFor(check: () => boolean, timeoutMs = 2000): Promise<void> {
@@ -29,12 +30,12 @@ describe('HistoryService', () => {
     process.env.DSH_HOME = tempRoot
   })
 
-  afterAll(() => {
+  afterAll(async () => {
     delete process.env.DSH_HOME
-    rmSync(tempRoot, { recursive: true, force: true })
+    await removeDirSafe(tempRoot)
   })
 
-  it('records events from change:created and persists to disk', async () => {
+  it('records events from change.created and persists to disk', async () => {
     const ctx = new Context()
     await ctx.plugin(LocalFileSystem, { cwd: tempRoot })
     await ctx.plugin(HistoryService)

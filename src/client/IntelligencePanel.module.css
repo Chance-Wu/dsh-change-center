@@ -22,11 +22,14 @@
   white-space: nowrap;
 }
 
-/* 面板级错误行 */
+/* 面板级错误行（含重试按钮） */
 .panelError {
   color: var(--dsw-alias-state-error-primary);
   font-size: var(--dsw-font-xxs-12);
   margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 /* 卡片正文容器(静态间距) */
@@ -43,10 +46,30 @@
   font-size: var(--dsw-font-xxs-12);
 }
 
+/* 审查/风险摘要行：风险信号 + 一句话 */
+.reviewSummaryLine {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--dsw-font-xxs-12);
+}
+
 /* 审查 finding 行 */
 .findingRow {
   font-size: var(--dsw-font-xxxs-11);
   margin-bottom: 3px;
+}
+
+/* 可定位的 finding 行：可点击 + hover 高亮 */
+.findingRowLink {
+  composes: findingRow;
+  cursor: pointer;
+  border-radius: 6px;
+  padding: 2px 4px;
+  margin-left: -4px;
+}
+.findingRowLink:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
 }
 
 .findingTitle {
@@ -55,6 +78,18 @@
 
 .findingFix {
   margin-left: 6px;
+}
+
+/* 风险 reasons 列表 */
+.riskReasons {
+  margin: 6px 0 0;
+  padding-left: 16px;
+  font-size: var(--dsw-font-xxxs-11);
+  color: var(--dsw-alias-label-secondary);
+}
+
+.riskReason {
+  margin-bottom: 3px;
 }
 
 /* 验证任务行 */
@@ -77,4 +112,36 @@
 
 .timelineTime {
   color: var(--dsw-alias-label-tertiary);
+}
+
+/* Git 卡片：未提交文件列表 */
+.gitEntries {
+  margin-top: 4px;
+  max-height: 110px;
+  overflow: auto;
+}
+
+.gitEntry {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--dsw-font-xxxs-11);
+  color: var(--dsw-alias-label-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.gitEntryCode {
+  flex: none;
+  font-size: var(--dsw-font-xxxs-11);
+  color: var(--dsw-alias-state-warn-primary);
+  background: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 12%, transparent);
+  border-radius: 4px;
+  padding: 0 5px;
+}
+
+.gitEntryPath {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
 }

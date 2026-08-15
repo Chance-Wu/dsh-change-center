@@ -1,4 +1,4 @@
-/* ChangeReviewPanel：三栏 IDE 审查布局。 */
+/* ChangeReviewPanel：Vibe UI 审查布局（Focus 卡片 + Review 三栏 + toast/warn/unsaved）。 */
 .panel {
   display: flex;
   flex-direction: column;
@@ -14,11 +14,165 @@
   font-size: var(--dsw-font-xxs-12);
 }
 
-/* 会话级操作栏：待审徽标 + 全部接收并应用 + 结果汇总。 */
+/* ── 头部：Turn + 状态 + 摘要 + 风险信号 + 模式/更多开关 ─────────── */
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.headerMain {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.headerLine {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.headerTitle {
+  font-size: var(--dsw-font-s-14);
+  font-weight: 700;
+  color: var(--dsw-alias-label-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.headerSub {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.headerSummary {
+  font-size: var(--dsw-font-xxs-12);
+  color: var(--dsw-alias-label-secondary);
+}
+
+.headerStats {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: var(--dsw-font-xxxs-11);
+  color: var(--dsw-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.headerRight {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+
+.statsAdd {
+  color: var(--dsw-alias-state-success-primary);
+  font-weight: 600;
+}
+
+.statsDel {
+  color: var(--dsw-alias-state-error-primary);
+  font-weight: 600;
+}
+
+/* ── Focus 卡片（V-2）：极简「当前 Turn」 ─────────────────────────── */
+.focusCard {
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-2);
+  box-shadow: var(--dsw-shadow-lv1);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 420px;
+}
+
+.focusHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.focusTitle {
+  font-size: var(--dsw-font-m-16);
+  font-weight: 700;
+  color: var(--dsw-alias-label-primary);
+}
+
+.focusSummary {
+  font-size: var(--dsw-font-xxs-12);
+  color: var(--dsw-alias-label-secondary);
+}
+
+.focusStats {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: var(--dsw-font-xxs-12);
+  color: var(--dsw-alias-label-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.focusWorking {
+  color: var(--dsw-alias-state-warn-primary);
+  font-weight: 600;
+  animation: pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+/* ── 批量操作条 + Issues 过滤（V-4 / V-11） ───────────────────────── */
 .actionBar {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 10px;
+  flex-wrap: wrap;
+}
+
+.filterTabs {
+  display: flex;
+  gap: 2px;
+  background: var(--dsw-alias-bg-layer-3);
+  border-radius: 8px;
+  padding: 2px;
+}
+
+.filterTab {
+  border: none;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: var(--dsw-font-xxs-12);
+  padding: 3px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+.filterTab:hover {
+  color: var(--dsw-alias-label-primary);
+}
+.filterTabActive {
+  composes: filterTab;
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-primary);
+  box-shadow: var(--dsw-shadow-lv1);
+}
+
+.batchOps {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   flex-wrap: wrap;
 }
 
@@ -32,46 +186,32 @@
   background: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 10%, transparent);
 }
 
-.pendingNone {
-  font-size: var(--dsw-font-xxs-12);
-  color: var(--dsw-alias-label-tertiary);
-}
-
-.acceptError {
-  font-size: var(--dsw-font-xxs-12);
-  color: var(--dsw-alias-state-error-primary);
-}
-
-.resultSummary {
-  flex-basis: 100%;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 10px;
-  background: var(--dsw-alias-bg-layer-2);
-  padding: 8px 12px;
-  font-size: var(--dsw-font-xxs-12);
-}
-
-.resultHead {
+/* ── toast（批量结果 + Undo 入口） ────────────────────────────────── */
+.toastOk {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
+  border: 1px solid var(--dsw-alias-state-success-primary);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 10%, var(--dsw-alias-bg-layer-2));
+  padding: 8px 12px;
+  font-size: var(--dsw-font-xxs-12);
+  color: var(--dsw-alias-label-primary);
 }
 
-.resultOk {
-  font-weight: 600;
-  color: var(--dsw-alias-state-success-primary);
+.toastWarn {
+  composes: toastOk;
+  border-color: var(--dsw-alias-state-warn-primary);
+  background: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 12%, var(--dsw-alias-bg-layer-2));
 }
 
-.resultFail {
-  font-weight: 600;
-  color: var(--dsw-alias-state-error-primary);
+.toastError {
+  composes: toastOk;
+  border-color: var(--dsw-alias-state-error-primary);
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 10%, var(--dsw-alias-bg-layer-2));
 }
 
-.resultMuted {
-  color: var(--dsw-alias-label-tertiary);
-}
-
-.resultClose {
+.toastClose {
   margin-left: auto;
   border: none;
   background: none;
@@ -82,7 +222,23 @@
   padding: 0 2px;
 }
 
-.resultFailList {
+/* ── 轻确认块：有风险的批量应用（V-4） ───────────────────────────── */
+.warnBlock {
+  border: 1px solid var(--dsw-alias-state-warn-primary);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 8%, var(--dsw-alias-bg-layer-2));
+  padding: 8px 12px;
+  font-size: var(--dsw-font-xxs-12);
+}
+
+.warnHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.warnList {
   margin: 6px 0 0;
   padding-left: 18px;
   max-height: 120px;
@@ -90,12 +246,34 @@
   color: var(--dsw-alias-label-secondary);
 }
 
-.resultFailId {
+.warnItem {
+  margin-bottom: 3px;
+}
+
+.warnId {
   font-variant-numeric: tabular-nums;
   font-weight: 600;
   margin-right: 6px;
 }
 
+/* ── 未保存修改确认条（V-7） ─────────────────────────────────────── */
+.unsavedBar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--dsw-alias-state-warn-primary);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 10%, var(--dsw-alias-bg-layer-2));
+  padding: 8px 12px;
+}
+
+.unsavedText {
+  font-weight: 600;
+  color: var(--dsw-alias-state-warn-primary);
+  font-size: var(--dsw-font-xxs-12);
+}
+
+/* ── 三栏主体 ────────────────────────────────────────────────────── */
 .body {
   display: flex;
   gap: 12px;

@@ -40,6 +40,8 @@ export interface ChangeSession {
     branch: string
     baseCommit: string
   }
+  /** Vibe UI 2.3 S-8:自然语言摘要(如「修改 src/auth 下 3 个文件」),随会话落库。 */
+  summary?: string
   createdAt: number
   updatedAt: number
 }

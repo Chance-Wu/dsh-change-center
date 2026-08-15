@@ -19,6 +19,7 @@ import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { applyCapture } from '../src/capture/ToolCapture.ts'
 import { ChangeService } from '../src/services/ChangeService.ts'
+import { removeDirSafe } from './helpers/removeDir.ts'
 
 const testSignal = new AbortController().signal
 
@@ -31,9 +32,9 @@ beforeAll(() => {
   process.env.DSH_HOME = join(tempDir, 'dsh-home')
 })
 
-afterAll(() => {
+afterAll(async () => {
   delete process.env.DSH_HOME
-  rmSync(tempDir, { recursive: true, force: true })
+  await removeDirSafe(tempDir)
 })
 
 /** A parent Agent backed by a real Session (the capture reads agent.session.id). */

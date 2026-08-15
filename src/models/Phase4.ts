@@ -36,6 +36,14 @@ export interface PolicyEvaluation {
   reason: string
 }
 
+/** One policy match against a SINGLE change (Vibe UI S-6: per-change ⛔). */
+export interface PolicyHit {
+  changeId: string
+  policyId: string
+  action: PolicyAction
+  reason: string
+}
+
 /** Lifecycle of one AI fix request. */
 export type FixStatus = 'pending' | 'running' | 'completed' | 'failed'
 

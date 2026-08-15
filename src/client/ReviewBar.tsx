@@ -7,7 +7,7 @@
 import { createElement, useState, type ReactElement } from 'react'
 import type { ActionResult, ChangeCenterApi, WireChange } from './index.ts'
 import { actionsFor } from './changeActions.ts'
-import { STATUS_ZH } from './i18n.ts'
+import { statusMeta } from './statusMeta.ts'
 import baseCss from './styles.module.css'
 import css from './ReviewBar.module.css'
 
@@ -21,15 +21,16 @@ export interface ReviewBarProps {
   disabled?: boolean
 }
 
-/** 状态 → 徽标样式类（共用）。 */
+/** 状态 → 徽标样式类（共用;权重按 V-8:applied=成功主态、failed=突出、rejected/rolled_back=弱化）。 */
 function statusClass(status: string): string {
   switch (status) {
-    case 'approved': return baseCss.badgeSuccess
+    case 'pending': return baseCss.badgeWarn
+    case 'approved': return baseCss.badgeBusiness
+    case 'applied': return baseCss.badgeSuccess
     case 'rejected': return baseCss.badgeError
-    case 'failed': return baseCss.badgeError
-    case 'applied': return baseCss.badgeBusiness
     case 'rolled_back': return baseCss.badge
-    default: return baseCss.badgeWarn
+    case 'failed': return baseCss.badgeError
+    default: return baseCss.badge
   }
 }
 
@@ -62,12 +63,13 @@ export function ReviewBar(props: ReviewBarProps): ReactElement {
   // 按钮矩阵来自单一事实源 actionsFor(与状态机 TRANSITIONS 一致);
   // failed 不显示「接受」:批量中失败的变更已被接受。
   const actions = actionsFor(change.status)
+  const meta = statusMeta(change.status)
   const inert = busy || disabled
 
-  return createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: 8 } },
+  return createElement('div', { className: css.wrap },
     createElement('div', { className: css.bar },
       createElement('div', { className: css.left },
-        createElement('span', { className: statusClass(change.status) }, STATUS_ZH[change.status] ?? change.status),
+        createElement('span', { className: statusClass(change.status), title: meta.label }, `${meta.icon} ${meta.label}`),
         createElement('span', { className: css.toolMeta }, `通过 ${change.toolName}`),
       ),
       createElement('div', { className: css.actions },
@@ -120,6 +122,11 @@ export function ReviewBar(props: ReviewBarProps): ReactElement {
         createElement('div', { className: css.conflictTitle }, '⚠ 文件已被外部修改'),
         createElement('div', { className: css.conflictDesc },
           '当前工作区文件与捕获时的版本不一致，直接应用会覆盖外部修改。'),
+        // S-2:hash 差异一目了然(前/后/磁盘当前)。
+        conflict.currentHash !== undefined && conflict.beforeHash !== undefined
+          ? createElement('div', { className: css.conflictHash },
+            `磁盘当前 ${conflict.currentHash.slice(0, 8)} ≠ 捕获时 ${conflict.beforeHash.slice(0, 8)}`)
+          : null,
         createElement('div', { className: css.conflictActions },
           createElement('button', {
             onClick: () => { setConflict(null); onAction() },
@@ -131,6 +138,11 @@ export function ReviewBar(props: ReviewBarProps): ReactElement {
           }, '强制应用'),
         ),
       )
+      : null,
+    // S-3:应用失败的恢复提示。
+    change.status === 'failed'
+      ? createElement('div', { className: css.failedHint },
+        '应用失败:可「重试应用」;持续失败可拒绝该变更。')
       : null,
   )
 }

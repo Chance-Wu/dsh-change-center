@@ -1,0 +1,35 @@
+/* 风险三级信号（✓ 正常 / ⚠ 需要注意 / ⛔ 阻止应用），只引用设计 token。 */
+.signal {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: var(--dsw-font-xxs-12);
+  line-height: 1;
+  cursor: default;
+}
+
+.glyph {
+  font-weight: 700;
+}
+
+.count {
+  font-size: var(--dsw-font-xxxs-11);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  padding: 1px 5px;
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-3);
+  color: var(--dsw-alias-label-secondary);
+}
+
+.ok {
+  color: var(--dsw-alias-state-success-primary);
+}
+
+.warn {
+  color: var(--dsw-alias-state-warn-primary);
+}
+
+.block {
+  color: var(--dsw-alias-state-error-primary);
+}

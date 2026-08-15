@@ -7,11 +7,14 @@
  * @module dsh-change-center/risk
  */
 
+import { join } from 'node:path'
 import { Service } from '@deepseek-ai/cordis'
 import type { Context } from '@deepseek-ai/cordis'
+import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import type { ChangeRisk, RiskLevel, RiskReason } from '../models/Phase3.ts'
 import type { ChangeService } from '../services/ChangeService.ts'
 import type { AIReviewService } from '../review/AIReviewService.ts'
+import { PLUGIN_STATE_POLICY } from '../services/pluginFs.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -40,12 +43,43 @@ const MEDIUM_PATH_PATTERNS = [
 
 /** Aggregated risk per change session. */
 export class RiskService extends Service {
-  static inject = ['changeCenter']
+  static inject = ['changeCenter', 'changeSessions']
 
   private readonly risks = new Map<string, ChangeRisk>()
+  private loadPromise: Promise<void> | undefined
+  private readonly root: string
 
   constructor(ctx: Context) {
     super(ctx, 'risk')
+    this.root = join(resolveDshHome(), 'change-center', 'risk')
+    // 冷启动:把持久化的风险结果读回内存(失败静默)。
+    this.ensureLoaded()
+  }
+
+  /** Load persisted risks once; safe to call repeatedly. */
+  ensureLoaded(): Promise<void> {
+    if (this.loadPromise === undefined) {
+      this.loadPromise = this.loadFromDisk().catch(() => undefined)
+    }
+    return this.loadPromise
+  }
+
+  private async loadFromDisk(): Promise<void> {
+    const fs = this.ctx.get('fs')
+    if (fs === undefined) return
+    const rootTarget = await fs.resolve(this.root)
+    const entries = await fs.listDir(rootTarget)
+    for (const entry of entries) {
+      if (entry.type !== 'file' || !entry.name.endsWith('.json')) continue
+      try {
+        const parsed = JSON.parse(await fs.readText(entry.target)) as ChangeRisk
+        if (typeof parsed.level !== 'string') continue
+        // 文件名即 session id(safe 转义);RiskChange 自身不携带 sessionId。
+        this.risks.set(entry.name.replace(/\.json$/, ''), parsed)
+      } catch {
+        // Skip corrupt risk files.
+      }
+    }
   }
 
   /** The stored risk for a session, if one exists. */
@@ -60,7 +94,13 @@ export class RiskService extends Service {
    * @param review - optional AI review result to fold in.
    */
   analyze(sessionId: string, changes: ChangeService, review?: ReturnType<AIReviewService['get']>): ChangeRisk {
-    const sessionChanges = changes.listBySession(sessionId)
+    // The change store is keyed by the AGENT session id (change.sessionId),
+    // while this record is keyed by the change-session id — resolve the
+    // mapping (like the history route) so the rules see the session's
+    // changes. Headless callers passing the agent key directly fall through.
+    const sessions = this.ctx.get('changeSessions')
+    const agentKey = sessions?.get(sessionId)?.agentSessionId ?? sessionId
+    const sessionChanges = changes.listBySession(agentKey)
     const reasons: RiskReason[] = []
     let level: RiskLevel = 'low'
     let score = 100
@@ -100,7 +140,23 @@ export class RiskService extends Service {
 
     const result: ChangeRisk = { level, score: Math.max(0, score), reasons }
     this.risks.set(sessionId, result)
+    this.persist(sessionId, result)
     return result
+  }
+
+  /** Best-effort write of one risk result to $DSH_HOME/change-center/risk/. */
+  private persist(sessionId: string, result: ChangeRisk): void {
+    const fs = this.ctx.get('fs')
+    if (fs === undefined) return
+    void (async () => {
+      try {
+        const target = await fs.resolve(join(this.root, sessionId.replace(/[/\\]/g, '_') + '.json'))
+        // 插件自有状态:$DSH_HOME 不在会话沙箱 writableRoots 内,显式放行。
+        await fs.writeText(target, JSON.stringify(result), undefined, undefined, PLUGIN_STATE_POLICY)
+      } catch {
+        // Best-effort persistence: the in-memory result remains authoritative.
+      }
+    })()
   }
 }
 

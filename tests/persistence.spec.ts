@@ -12,6 +12,7 @@ import { Context } from '@deepseek-ai/cordis'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import { ChangeService } from '../src/services/ChangeService.ts'
 import { SessionService } from '../src/services/SessionService.ts'
+import { removeDirSafe } from './helpers/removeDir.ts'
 
 /** Poll until `check` is true (the async persist chains flush to disk). */
 async function waitFor(check: () => boolean, timeoutMs = 2000): Promise<void> {
@@ -30,9 +31,9 @@ describe('change-center store persistence', () => {
     process.env.DSH_HOME = tempRoot
   })
 
-  afterAll(() => {
+  afterAll(async () => {
     delete process.env.DSH_HOME
-    rmSync(tempRoot, { recursive: true, force: true })
+    await removeDirSafe(tempRoot)
   })
 
   async function makeCtx(): Promise<Context> {
@@ -44,7 +45,7 @@ describe('change-center store persistence', () => {
   }
 
   it('restores changes and sessions after a host restart', async () => {
-    // First host: record one change and approve it; the change:created event
+    // First host: record one change and approve it; the change.created event
     // opens a fallback session.
     const ctx1 = await makeCtx()
     ctx1.changeCenter.record({
@@ -81,5 +82,21 @@ describe('change-center store persistence', () => {
     })
     expect(ctx.changeCenter.get(change.id)?.status).toBe('pending')
     expect(ctx.changeSessions.list().length).toBeGreaterThan(0)
+  })
+
+  it('reconciles a crash-left active session to completed on restart', async () => {
+    const ctx1 = await makeCtx()
+    ctx1.changeCenter.record({
+      sessionId: 'agent-3', cwd: '/tmp', kind: 'file', path: 'c.txt',
+      operation: 'modify', before: 'x\n', after: 'y\n', source: 'agent', toolName: 'edit',
+    })
+    // 模拟崩溃:进程死亡时会话仍是 active(没有 turn/end)。
+    const session = ctx1.changeSessions.list()[0]!
+    expect(session.status).toBe('active')
+    await waitFor(() => existsSync(join(tempRoot, 'change-center', 'store', 'sessions.jsonl')))
+
+    const ctx2 = await makeCtx()
+    await waitFor(() => ctx2.changeSessions.list().length > 0)
+    expect(ctx2.changeSessions.list()[0]?.status).toBe('completed')
   })
 })

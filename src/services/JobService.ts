@@ -33,8 +33,10 @@ declare module '@deepseek-ai/cordis' {
     jobs: JobService
   }
   interface Events {
+    /** A background job started running. */
+    'job.started'(job: Job): void
     /** A background job settled (completed / failed / cancelled). */
-    'job:settled'(job: Job): void
+    'job.settled'(job: Job): void
   }
 }
 
@@ -105,10 +107,11 @@ export class JobService extends Service {
       job.status = 'cancelled'
       job.finishedAt = Date.now()
       this.controllers.delete(job.id)
-      this.ctx.emit('job:settled', job)
+      this.ctx.emit('job.settled', job)
       return
     }
     job.status = 'running'
+    this.ctx.emit('job.started', job)
     try {
       job.result = await fn(controller.signal)
       job.status = controller.signal.aborted ? 'cancelled' : 'completed'
@@ -120,6 +123,6 @@ export class JobService extends Service {
     }
     job.finishedAt = Date.now()
     this.controllers.delete(job.id)
-    this.ctx.emit('job:settled', job)
+    this.ctx.emit('job.settled', job)
   }
 }

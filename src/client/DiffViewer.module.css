@@ -24,6 +24,37 @@
   white-space: nowrap;
 }
 
+/* P-1:文件头 +N -M */
+.fileBlock {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.fileCounts {
+  display: inline-flex;
+  gap: 4px;
+  font-size: var(--dsw-font-xxxs-11);
+  font-variant-numeric: tabular-nums;
+  flex: none;
+}
+
+.countAdd {
+  color: var(--dsw-alias-state-success-primary);
+  font-weight: 600;
+}
+
+.countDel {
+  color: var(--dsw-alias-state-error-primary);
+  font-weight: 600;
+}
+
+/* diff 内容区(P-2:静态内联样式入 css) */
+.content {
+  margin-top: 8px;
+}
+
 .modeTabs {
   display: flex;
   gap: 2px;
@@ -95,6 +126,12 @@
   border-radius: 8px;
   overflow: hidden;
 }
+.sideRow {
+  display: flex;
+  font-family: var(--ds-font-family-code);
+  font-size: var(--dsw-font-xxxs-11);
+  line-height: 17px;
+}
 .sideHeader {
   display: flex;
   border-bottom: 1px solid var(--dsw-alias-border-l1);
@@ -108,12 +145,6 @@
 .sideColHeader {
   flex: 1;
   padding: 4px 8px;
-}
-.sideRow {
-  display: flex;
-  font-family: var(--ds-font-family-code);
-  font-size: var(--dsw-font-xxxs-11);
-  line-height: 17px;
 }
 .sideRowDeletion {
   background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, var(--dsw-alias-bg-layer-1));
@@ -168,4 +199,11 @@
 .savedHint {
   color: var(--dsw-alias-state-success-primary);
   font-size: var(--dsw-font-xxs-12);
+}
+
+/* 脏状态（V-7）：编辑器修改后显示 ✎ 已修改 */
+.dirtyHint {
+  color: var(--dsw-alias-state-warn-primary);
+  font-size: var(--dsw-font-xxs-12);
+  font-weight: 600;
 }

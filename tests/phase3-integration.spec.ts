@@ -14,6 +14,7 @@ import SubprocessLocal from '@deepseek-ai/dsh-subprocess-local'
 import BashLocal from '@deepseek-ai/dsh-bash-local'
 import { GitService } from '../src/git/GitService.ts'
 import { VerificationService } from '../src/verification/VerificationService.ts'
+import { removeDirSafe } from './helpers/removeDir.ts'
 
 let repoDir: string
 let plainDir: string
@@ -29,9 +30,9 @@ beforeAll(() => {
   writeFileSync(join(repoDir, 'a.txt'), 'two\n')
 })
 
-afterAll(() => {
-  rmSync(repoDir, { recursive: true, force: true })
-  rmSync(plainDir, { recursive: true, force: true })
+afterAll(async () => {
+  await removeDirSafe(repoDir)
+  await removeDirSafe(plainDir)
 })
 
 async function setup(): Promise<Context> {

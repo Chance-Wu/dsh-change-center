@@ -22,6 +22,7 @@ import { ChangeService } from '../src/services/ChangeService.ts'
 import { SessionService } from '../src/services/SessionService.ts'
 import { ApplyService } from '../src/services/ApplyService.ts'
 import { SnapshotService } from '../src/services/SnapshotService.ts'
+import { removeDirSafe } from './helpers/removeDir.ts'
 
 const testSignal = new AbortController().signal
 
@@ -34,9 +35,9 @@ beforeAll(() => {
   process.env.DSH_HOME = join(tempDir, 'dsh-home')
 })
 
-afterAll(() => {
+afterAll(async () => {
   delete process.env.DSH_HOME
-  rmSync(tempDir, { recursive: true, force: true })
+  await removeDirSafe(tempDir)
 })
 
 /** A parent Agent backed by a real Session rooted at tempDir. */
@@ -223,5 +224,56 @@ describe('Apply Engine e2e', () => {
     expect(readFileSync(a, 'utf8')).toBe('old a\n')
     expect(readFileSync(b, 'utf8')).toBe('old b\n')
     expect(ctx.changeCenter.listBySession('rollback-all-1').every(c => c.status === 'rolled_back')).toBe(true)
+  })
+
+  it('bulk ops must use the agent session id, not the change-session id (route mapping)', async () => {
+    const ctx = await setup()
+    const agent = agentWithSession('bulk-route-1')
+    const target = join(tempDir, 'BulkRoute.java')
+    writeFileSync(target, 'original\n')
+
+    await executeWrite(ctx, { file_path: target, content: 'bulk applied\n' }, agent)
+    const change = ctx.changeCenter.list()[0]!
+    // A command record rides the same session: it applies as a marker and
+    // must not pollute rollback-all with missing-snapshot noise.
+    ctx.changeCenter.record({
+      sessionId: 'bulk-route-1',
+      cwd: tempDir,
+      kind: 'command',
+      path: 'ls -la',
+      operation: 'execute',
+      before: null,
+      after: 'ls -la',
+      source: 'agent',
+      toolName: 'bash',
+    })
+    const commandChange = ctx.changeCenter.list()[1]!
+
+    // SessionService opens a change-session per captured change; the HTTP
+    // route receives THAT id. The change store is keyed by the AGENT session
+    // id (change.sessionId), so passing the change-session id directly — the
+    // pre-fix route behavior — silently matches nothing.
+    const changeSession = ctx.changeSessions.list()[0]!
+    expect(changeSession.agentSessionId).toBe('bulk-route-1')
+    expect(changeSession.id).not.toBe('bulk-route-1')
+
+    const wrongKey = await ctx.changeCenter.acceptAllAndApply(changeSession.id)
+    expect(wrongKey.applied).toHaveLength(0)
+    expect(ctx.changeCenter.get(change.id)?.status).toBe('pending')
+
+    // The route maps changeSession.id → changeSession.agentSessionId first.
+    const result = await ctx.changeCenter.acceptAllAndApply(changeSession.agentSessionId)
+    expect(result.applied).toContain(change.id)
+    expect(result.applied).toContain(commandChange.id)
+    expect(ctx.changeCenter.get(change.id)?.status).toBe('applied')
+    expect(readFileSync(target, 'utf8')).toBe('bulk applied\n')
+
+    // Rollback-all restores the file; the command marker is skipped (no
+    // snapshot exists for it) instead of surfacing as a missing snapshot.
+    const rolled = await ctx.changeCenter.rollbackAll(changeSession.agentSessionId)
+    expect(rolled.rolledBack).toEqual([change.id])
+    expect(rolled.missing).toHaveLength(0)
+    expect(rolled.failed).toHaveLength(0)
+    expect(readFileSync(target, 'utf8')).toBe('original\n')
   })
 })

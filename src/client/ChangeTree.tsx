@@ -14,6 +14,7 @@
 import { createElement, useMemo, useState, type ReactElement } from 'react'
 import type { WireChange } from './index.ts'
 import { actionsFor } from './changeActions.ts'
+import { statusMeta } from './statusMeta.ts'
 import { countDiff } from '../services/DiffService.ts'
 import { OPERATION_MARK } from './i18n.ts'
 import css from './ChangeTree.module.css'
@@ -33,6 +34,8 @@ export interface ChangeTreeProps {
   onRepend?: (id: string) => void
   /** Panel lock (bulk op in flight / result showing): hide quick actions. */
   disabled?: boolean
+  /** S-6:策略 deny 的变更 id 集合 → 行尾 ⛔ 徽标。 */
+  deniedIds?: ReadonlySet<string>
 }
 
 /** Display mode: extension groups (`*.ext`) or the directory tree. */
@@ -188,6 +191,18 @@ function renderFileRow(
   // 快速操作与操作栏共用同一矩阵(actionsFor),面板锁定时隐藏。
   const actions = actionsFor(change.status)
   const showActions = !(props.disabled ?? false)
+  // V-8 状态视觉:非待审状态在行尾显示状态字形(失败突出、已应用成功、拒绝/回滚弱化)。
+  const meta = statusMeta(change.status)
+  const statusGlyph = change.status === 'pending' || change.status === 'approved'
+    ? null
+    : createElement('span', {
+      className: change.status === 'failed' ? css.statusFailed
+        : change.status === 'applied' ? css.statusApplied
+          : css.statusMuted,
+      title: meta.label,
+    }, meta.icon)
+  // S-6:策略 deny 的变更显示 ⛔(优先级高于状态字形)。
+  const denied = props.deniedIds?.has(change.id) ?? false
   return createElement('button', {
     key: change.id,
     className: css.fileRow,
@@ -203,6 +218,9 @@ function renderFileRow(
       counts.deletions > 0 ? createElement('span', { className: css.countDel }, `-${counts.deletions}`) : null,
     )
     : null,
+  denied
+    ? createElement('span', { className: css.statusDenied, title: '被策略拒绝' }, '⛔')
+    : statusGlyph,
   showActions && (actions.canApprove || actions.canReject || actions.canRollback || actions.canRepend)
     ? createElement('span', { className: css.rowActions, onClick: (event: MouseEvent) => event.stopPropagation() },
       actions.canApprove && props.onApprove !== undefined

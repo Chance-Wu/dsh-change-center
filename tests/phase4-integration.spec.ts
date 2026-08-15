@@ -25,6 +25,7 @@ import { SessionService } from '../src/services/SessionService.ts'
 import { AIReviewService } from '../src/review/AIReviewService.ts'
 import { AIFixService } from '../src/fix/AIFixService.ts'
 import { ReviewFixLoopService } from '../src/loop/ReviewFixLoopService.ts'
+import { removeDirSafe } from './helpers/removeDir.ts'
 
 const testSignal = new AbortController().signal
 
@@ -36,9 +37,9 @@ beforeAll(() => {
   process.env.DSH_HOME = join(tempDir, 'dsh-home')
 })
 
-afterAll(() => {
+afterAll(async () => {
   delete process.env.DSH_HOME
-  rmSync(tempDir, { recursive: true, force: true })
+  await removeDirSafe(tempDir)
 })
 
 /** A parent Agent backed by a real Session rooted at tempDir. */

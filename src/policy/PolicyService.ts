@@ -16,9 +16,10 @@ import type { Context } from '@deepseek-ai/cordis'
 // Type-only: pulls the `ctx.fs` Context merge into scope.
 import type {} from '@deepseek-ai/dsh-fs'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
-import type { ChangePolicy, PolicyEvaluation } from '../models/Phase4.ts'
+import type { ChangePolicy, PolicyEvaluation, PolicyHit } from '../models/Phase4.ts'
 import type { ChangeRisk, RiskLevel } from '../models/Phase3.ts'
 import type { FileChange } from '../models/FileChange.ts'
+import { PLUGIN_STATE_POLICY } from '../services/pluginFs.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -115,6 +116,29 @@ export class PolicyService extends Service {
     return evaluations
   }
 
+  /**
+   * Per-change policy hits (Vibe UI S-6): the FIRST matching policy for EACH
+   * change (ordered by policy priority), so the UI can mark denied changes
+   * with ⛔ and fold them into the Issues filter.
+   */
+  async evaluateAll(changes: FileChange[], risk?: ChangeRisk): Promise<PolicyHit[]> {
+    const policies = await this.list()
+    const levelOrder: Record<RiskLevel, number> = { low: 0, medium: 1, high: 2, critical: 3 }
+    const sessionRisk: RiskLevel = risk?.level ?? 'low'
+    const hits: PolicyHit[] = []
+    for (const change of changes) {
+      for (const policy of policies) {
+        if (!policy.enabled) continue
+        const reason = matchPolicy(policy, change, sessionRisk, levelOrder)
+        if (reason !== undefined) {
+          hits.push({ changeId: change.id, policyId: policy.id, action: policy.action, reason })
+          break // first matching policy per change
+        }
+      }
+    }
+    return hits
+  }
+
   private async loadPersisted(): Promise<ChangePolicy[] | undefined> {
     const fs = this.ctx.get('fs')
     if (fs === undefined) return undefined
@@ -134,7 +158,8 @@ export class PolicyService extends Service {
     if (fs === undefined) return
     try {
       const target = await fs.resolve(this.root)
-      await fs.writeText(target, JSON.stringify(policies, null, 2))
+      // Plugin state under $DSH_HOME — outside the session sandbox.
+      await fs.writeText(target, JSON.stringify(policies, null, 2), undefined, undefined, PLUGIN_STATE_POLICY)
     } catch {
       // Best-effort persistence.
     }
@@ -165,7 +190,10 @@ function matchCondition(
 ): boolean {
   switch (condition.type) {
     case 'file':
-      return compareString(change.path, condition.operator, String(condition.value))
+    case 'language':
+      // 真实捕获的 path 是绝对路径(带 cwd 前缀),而策略模式按相对路径书写;
+      // 两种形态都参与匹配,否则内置策略在 web 流程里永远不命中。
+      return matchPaths(change, condition.operator, String(condition.value))
     case 'operation':
       return compareString(change.operation, condition.operator, String(condition.value))
     case 'risk': {
@@ -175,11 +203,19 @@ function matchCondition(
     }
     case 'command':
       return compareString(change.after ?? '', condition.operator, String(condition.value))
-    case 'language':
-      return compareString(change.path, condition.operator, String(condition.value))
     default:
       return false
   }
+}
+
+/** Match a path condition against the raw path and its cwd-relative form. */
+function matchPaths(change: FileChange, operator: string, expected: string): boolean {
+  if (compareString(change.path, operator, expected)) return true
+  const base = change.cwd.replace(/\/+$/, '')
+  if (base.length > 0 && change.path.startsWith(`${base}/`)) {
+    return compareString(change.path.slice(base.length + 1), operator, expected)
+  }
+  return false
 }
 
 function compareString(actual: string, operator: string, expected: string): boolean {

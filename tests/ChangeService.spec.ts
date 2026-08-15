@@ -108,10 +108,10 @@ describe('ChangeService', () => {
     expect(err).toMatchObject({ kind: 'error' })
   })
 
-  it('emits change:created on record', async () => {
+  it('emits change.created on record', async () => {
     const ctx = await setup()
     const seen: string[] = []
-    ctx.on('change:created', change => { seen.push(change.path) })
+    ctx.on('change.created', change => { seen.push(change.path) })
     ctx.changeCenter.record({
       sessionId: 'sess-1',
       cwd: '/tmp/ws',
@@ -181,6 +181,72 @@ describe('ChangeService', () => {
     expect(result.failed[0]?.id).toBe('change-2')
     expect(result.superseded).toEqual(['change-1'])
     expect(result.skipped).toHaveLength(0)
+  })
+
+  it('accept-all-and-apply holds back deny-policy changes as blocked', async () => {
+    const { LocalFileSystem } = await import('@deepseek-ai/dsh-fs-local')
+    const { PolicyService } = await import('../src/policy/PolicyService.ts')
+    const { mkdtempSync, rmSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const root = mkdtempSync(join(tmpdir(), 'dsh-policy-gate-'))
+    process.env.DSH_HOME = root
+    try {
+      const ctx = new Context()
+      await ctx.plugin(LocalFileSystem, { cwd: root })
+      await ctx.plugin(ChangeService)
+      await ctx.plugin(SessionService)
+      await ctx.plugin(PolicyService)
+      // deny-core-delete 命中 src/(security|config)/ 下的删除。
+      ctx.changeCenter.record({
+        sessionId: 'gate-1', cwd: '/tmp/ws', path: 'src/security/AuthConfig.java', operation: 'delete',
+        before: 'x\n', after: null, source: 'agent', toolName: 'edit',
+      })
+      ctx.changeCenter.record({
+        sessionId: 'gate-1', cwd: '/tmp/ws', path: 'src/demo/Util.java', operation: 'modify',
+        before: 'x\n', after: 'y\n', source: 'agent', toolName: 'edit',
+      })
+      const result = await ctx.changeCenter.acceptAllAndApply('gate-1')
+      // deny 命中 → blocked,保持 pending;未命中照常处理(无引擎 → 失败)。
+      expect(result.blocked).toHaveLength(1)
+      expect(result.blocked[0]?.id).toBe('change-1')
+      expect(result.blocked[0]?.message).toContain('deny-core-delete')
+      expect(ctx.changeCenter.get('change-1')?.status).toBe('pending')
+      expect(result.applied).toHaveLength(0)
+      expect(result.failed.map(item => item.id)).toEqual(['change-2'])
+    } finally {
+      delete process.env.DSH_HOME
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('accept-all-and-apply(force) bypasses the deny gate (Vibe UI 仍然全部应用)', async () => {
+    const { LocalFileSystem } = await import('@deepseek-ai/dsh-fs-local')
+    const { PolicyService } = await import('../src/policy/PolicyService.ts')
+    const { mkdtempSync, rmSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const root = mkdtempSync(join(tmpdir(), 'dsh-policy-force-'))
+    process.env.DSH_HOME = root
+    try {
+      const ctx = new Context()
+      await ctx.plugin(LocalFileSystem, { cwd: root })
+      await ctx.plugin(ChangeService)
+      await ctx.plugin(SessionService)
+      await ctx.plugin(PolicyService)
+      ctx.changeCenter.record({
+        sessionId: 'gate-2', cwd: '/tmp/ws', path: 'src/security/AuthConfig.java', operation: 'delete',
+        before: 'x\n', after: null, source: 'agent', toolName: 'edit',
+      })
+      // force:deny 门禁被跳过,变更不再 blocked(无应用引擎时仍走 apply → 失败,
+      // 但不会停留在 pending+blocked 的死角)。
+      const result = await ctx.changeCenter.acceptAllAndApply('gate-2', true)
+      expect(result.blocked).toHaveLength(0)
+      expect(ctx.changeCenter.get('change-1')?.status).not.toBe('pending')
+    } finally {
+      delete process.env.DSH_HOME
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 })
 

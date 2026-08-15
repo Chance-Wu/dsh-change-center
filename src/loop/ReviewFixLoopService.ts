@@ -98,7 +98,13 @@ export class ReviewFixLoopService extends Service {
    */
   private findChangeForFinding(sessionId: string, finding: ReviewFinding, changes: ChangeService) {
     if (finding.filePath.length === 0) return undefined
-    return changes.listBySession(sessionId)
+    // The change store is keyed by the AGENT session id (change.sessionId),
+    // not the change-session id this loop runs under — resolve the mapping
+    // so fixes find their change. Headless callers passing the agent key
+    // directly fall through.
+    const sessions = this.ctx.get('changeSessions')
+    const agentKey = sessions?.get(sessionId)?.agentSessionId ?? sessionId
+    return changes.listBySession(agentKey)
       .find(change => changePathMatches(change, finding.filePath))
   }
 }

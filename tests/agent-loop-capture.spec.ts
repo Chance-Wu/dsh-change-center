@@ -22,6 +22,7 @@ import { applyCapture } from '../src/capture/ToolCapture.ts'
 import { ChangeService } from '../src/services/ChangeService.ts'
 import { SessionService } from '../src/services/SessionService.ts'
 import { textResponse, toolCallResponse, MockAdapter } from './helpers/mock-adapter.ts'
+import { removeDirSafe } from './helpers/removeDir.ts'
 
 async function harness(adapter: MockAdapter, cwd: string): Promise<Context> {
   const ctx = new Context()
@@ -57,9 +58,9 @@ describe('capture through the real agent loop', () => {
     process.env.DSH_HOME = tempRoot
   })
 
-  afterAll(() => {
+  afterAll(async () => {
     delete process.env.DSH_HOME
-    rmSync(tempRoot, { recursive: true, force: true })
+    await removeDirSafe(tempRoot)
   })
 
   it('captures a write tool call as a change', async () => {

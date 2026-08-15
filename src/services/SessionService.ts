@@ -21,6 +21,7 @@ import type {} from '@deepseek-ai/dsh-fs'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import type { Session } from '@deepseek-ai/dsh-session'
 import type { ChangeSession, ChangeSessionStatus, ChangeStatistics } from '../models/ChangeSession.ts'
+import type { ChangeOperation } from '../models/FileChange.ts'
 import type { ChangeService } from './ChangeService.ts'
 import { countDiff } from './DiffService.ts'
 import { JsonlStore, maxIdSuffix } from './JsonlStore.ts'
@@ -45,8 +46,8 @@ export class SessionService extends Service {
   private readonly sessions = new Map<string, ChangeSession>()
   /** agentSessionKey → currently active session id. */
   private readonly active = new Map<AgentSessionKey, string>()
-  /** agentSessionKey → set of distinct file paths (for `files` stat). */
-  private readonly paths = new Map<AgentSessionKey, Set<string>>()
+  /** agentSessionKey → relative path → operation (S-8 摘要推导 + files 统计). */
+  private readonly paths = new Map<AgentSessionKey, Map<string, ChangeOperation>>()
   private nextId = 1
   /** Durable JSONL store (no-op when the `fs` service is absent). */
   private readonly store: JsonlStore<ChangeSession>
@@ -76,7 +77,7 @@ export class SessionService extends Service {
       if (id !== undefined) this.setStatus(id, 'failed')
     })
 
-    ctx.on('change:created', (change) => {
+    ctx.on('change.created', (change) => {
       const key = change.sessionId
       // Every captured change belongs to a session: attach to the active one,
       // opening a fallback group if no turn/start was observed (headless or
@@ -99,11 +100,13 @@ export class SessionService extends Service {
         session.statistics.deletions += counts.deletions
         let paths = this.paths.get(key)
         if (paths === undefined) {
-          paths = new Set()
+          paths = new Map()
           this.paths.set(key, paths)
         }
-        paths.add(change.path)
+        // S-8:记录相对路径 + 操作,用于自然语言摘要(随会话落库)。
+        paths.set(relPathOf(change), change.operation)
         session.statistics.files = paths.size
+        session.summary = deriveSummary(paths)
       }
       session.updatedAt = Date.now()
       this.persist()
@@ -124,6 +127,11 @@ export class SessionService extends Service {
     for (const session of records) {
       // Sessions created in this process win over stale disk copies.
       if (typeof session?.id === 'string' && !this.sessions.has(session.id)) {
+        // A session persisted as `active` was mid-turn when the process died:
+        // there is no live turn to resume, so reconcile it as completed.
+        if (session.status === 'active') {
+          session.status = 'completed'
+        }
         this.sessions.set(session.id, session)
       }
     }
@@ -158,14 +166,21 @@ export class SessionService extends Service {
       .filter((change): change is NonNullable<typeof change> => change !== undefined)
   }
 
-  /** Set a session's status and emit `change-session:status` on change. */
+  /** Set a session's status and emit `session.updated` / `session.completed`. */
   setStatus(id: string, status: ChangeSessionStatus): ChangeSession | undefined {
     const session = this.sessions.get(id)
     if (session === undefined) return undefined
     if (session.status === status) return session
     session.status = status
     session.updatedAt = Date.now()
-    this.ctx.emit('change-session:status', session)
+    // 终态(completed/failed/cancelled)发 `session.completed`,其余发 `session.updated`。
+    if (status === 'completed' || status === 'failed' || status === 'cancelled') {
+      this.ctx.emit('session.completed', session)
+      // S-5:turn 结束后只保留最近 N 个快照,保证「刚应用完可 Undo」同时磁盘有界。
+      void this.ctx.get('snapshots')?.pruneSession(session.agentSessionId, 5)
+    } else {
+      this.ctx.emit('session.updated', session)
+    }
     this.persist()
     return session
   }
@@ -188,7 +203,7 @@ export class SessionService extends Service {
     }
     this.sessions.set(id, created)
     this.active.set(key, id)
-    this.ctx.emit('change-session:created', created)
+    this.ctx.emit('session.created', created)
     this.persist()
     return created
   }
@@ -221,7 +236,7 @@ export class SessionService extends Service {
     }
     this.sessions.set(id, created)
     this.active.set(agentSessionId, id)
-    this.ctx.emit('change-session:created', created)
+    this.ctx.emit('session.created', created)
     this.persist()
     return created
   }
@@ -247,4 +262,47 @@ function hhmm(): string {
 /** Last 6 chars of an agent session id (for compact fallback names). */
 function shortId(id: string): string {
   return id.length > 6 ? id.slice(-6) : id
+}
+
+/** 变更路径相对工作区的形式(摘要用;绝对路径保留原样)。 */
+function relPathOf(change: { path: string; cwd: string }): string {
+  const base = (change.cwd ?? '').replace(/\/+$/, '')
+  if (base.length > 0 && change.path.startsWith(`${base}/`)) {
+    return change.path.slice(base.length + 1)
+  }
+  return change.path
+}
+
+/**
+ * 会话自然语言摘要(与客户端 summarizeChanges 同一启发式,host 侧落库):
+ * 「修改 src/auth 下 3 个文件」/「新增 src/lib 下 2 个文件」/「删除 1 个文件」。
+ */
+function deriveSummary(opsByRelPath: Map<string, ChangeOperation>): string {
+  const files = [...opsByRelPath.entries()]
+  if (files.length === 0) return ''
+  const ops = { create: 0, modify: 0, delete: 0, rename: 0 }
+  const dirs: string[] = []
+  for (const [path, op] of files) {
+    if (op === 'create' || op === 'modify' || op === 'delete' || op === 'rename') ops[op] += 1
+    const idx = path.lastIndexOf('/')
+    if (idx > 0) dirs.push(path.slice(0, idx))
+  }
+  const verb = ops.create === files.length ? '新增' : ops.delete === files.length ? '删除' : '修改'
+  const dir = commonDir(dirs)
+  return dir.length > 0 ? `${verb} ${dir} 下 ${files.length} 个文件` : `${verb} ${files.length} 个文件`
+}
+
+/** 所有路径共享的最长目录前缀。 */
+function commonDir(dirs: string[]): string {
+  if (dirs.length === 0) return ''
+  const parts = dirs[0]!.split('/')
+  let depth = 0
+  outer: for (let i = 0; i < parts.length; i++) {
+    const prefix = parts.slice(0, i + 1).join('/')
+    for (const dir of dirs) {
+      if (!(dir === prefix || dir.startsWith(`${prefix}/`))) break outer
+    }
+    depth = i + 1
+  }
+  return parts.slice(0, depth).join('/')
 }

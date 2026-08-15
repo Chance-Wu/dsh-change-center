@@ -3,10 +3,10 @@
  * {@link ChangeEvent} and persists it under
  * `$DSH_HOME/change-center/history/<sessionId>.json`.
  *
- * The service listens to the plugin's own Cordis events (change:created,
- * change:approved, …) and translates them into durable history entries. The
- * event stream is also exposed as a per-session timeline. Persistence goes
- * through the `ctx.fs` seam (atomic writes, sandbox/approval aware).
+ * The service listens to the plugin's own Cordis events (change.created,
+ * change.updated, session.created) and translates them into durable history
+ * entries. The event stream is also exposed as a per-session timeline.
+ * Persistence goes through the `ctx.fs` seam (atomic writes, sandbox aware).
  * @module dsh-change-center/history
  */
 
@@ -17,11 +17,21 @@ import type { Context, Events } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-fs'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import type { ChangeEvent, ChangeEventActor, ChangeEventType } from '../models/Phase3.ts'
+import type { FileChange, ChangeStatus } from '../models/FileChange.ts'
+import { PLUGIN_STATE_POLICY } from '../services/pluginFs.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
     changeHistory: HistoryService
   }
+}
+
+/** change.updated 的变更状态 → 历史事件类型(failed 不产生事件)。 */
+const STATUS_TO_EVENT: Partial<Record<ChangeStatus, ChangeEventType>> = {
+  approved: 'approved',
+  rejected: 'rejected',
+  applied: 'applied',
+  rolled_back: 'rolled_back',
 }
 
 /** A subscriber entry translating one plugin event into a ChangeEvent. */
@@ -66,12 +76,8 @@ export class HistoryService extends Service {
     }
 
     const mappings: EventMapping[] = [
-      { event: 'change:created', type: 'created', actor: 'agent', sessionOf: sessionIdOf, changeOf: idOf },
-      { event: 'change:approved', type: 'approved', actor: 'user', sessionOf: sessionIdOf, changeOf: idOf },
-      { event: 'change:rejected', type: 'rejected', actor: 'user', sessionOf: sessionIdOf, changeOf: idOf },
-      { event: 'change:applied', type: 'applied', actor: 'user', sessionOf: sessionIdOf, changeOf: idOf },
-      { event: 'change:rollback', type: 'rolled_back', actor: 'user', sessionOf: sessionIdOf, changeOf: idOf },
-      { event: 'change-session:created', type: 'created', actor: 'agent', sessionOf: changeSessionKeyOf },
+      { event: 'change.created', type: 'created', actor: 'agent', sessionOf: sessionIdOf, changeOf: idOf },
+      { event: 'session.created', type: 'created', actor: 'agent', sessionOf: changeSessionKeyOf },
     ]
 
     for (const mapping of mappings) {
@@ -89,6 +95,22 @@ export class HistoryService extends Service {
         })
       })
     }
+
+    // `change.updated` collapses the per-action events (approved/rejected/
+    // applied/rolled_back/failed): derive the history event type from the
+    // change's new status.
+    ctx.on('change.updated' as keyof Events, (change: FileChange) => {
+      const sessionId = sessionIdOf([change])
+      if (sessionId === undefined) return
+      const type = STATUS_TO_EVENT[change.status]
+      if (type === undefined) return // failed 不产生历史事件
+      void this.record({
+        sessionId,
+        changeId: change.id,
+        type,
+        actor: 'user',
+      })
+    })
   }
 
   /** Record one change event in memory and persist it. */
@@ -121,7 +143,8 @@ export class HistoryService extends Service {
     if (fs === undefined) return
     try {
       const target = await fs.resolve(join(this.root, safe(sessionId), 'history.json'))
-      await fs.writeText(target, JSON.stringify(events, null, 2))
+      // Plugin state under $DSH_HOME — outside the session sandbox.
+      await fs.writeText(target, JSON.stringify(events, null, 2), undefined, undefined, PLUGIN_STATE_POLICY)
     } catch {
       // Best-effort persistence: history still lives in memory.
     }

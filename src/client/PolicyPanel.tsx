@@ -5,8 +5,8 @@
  */
 
 import { createElement, useEffect, useState, type ReactElement } from 'react'
-import type { ChangeCenterApi, WirePolicy } from './index.ts'
-import { POLICY_ACTION_ZH, POLICY_NAME_ZH } from './i18n.ts'
+import type { ChangeCenterApi, WirePolicy, WirePolicyEvaluation } from './index.ts'
+import { POLICY_ACTION_ZH, POLICY_NAME_ZH, UNKNOWN_ZH } from './i18n.ts'
 import baseCss from './styles.module.css'
 import css from './PolicyPanel.module.css'
 
@@ -17,14 +17,25 @@ export interface PolicyPanelProps {
   onChanged: () => void
 }
 
-/** Policy list with enable toggles. */
+/** Policy list with enable toggles and per-session evaluation results. */
 export function PolicyPanel(props: PolicyPanelProps): ReactElement {
-  const { api, onChanged } = props
+  const { sessionId, api, onChanged } = props
   const [policies, setPolicies] = useState<WirePolicy[]>([])
+  const [evaluations, setEvaluations] = useState<WirePolicyEvaluation[]>([])
 
   useEffect(() => {
     api.policies().then(setPolicies).catch(() => setPolicies([]))
   }, [])
+
+  useEffect(() => {
+    if (sessionId === null) {
+      setEvaluations([])
+      return
+    }
+    api.policyEvaluation(sessionId)
+      .then(({ evaluations }) => setEvaluations(evaluations))
+      .catch(() => setEvaluations([]))
+  }, [sessionId])
 
   const toggle = (policy: WirePolicy): void => {
     api.policySave({ ...policy, enabled: !policy.enabled })
@@ -45,9 +56,21 @@ export function PolicyPanel(props: PolicyPanelProps): ReactElement {
         createElement('div', { className: css.info },
           createElement('div', { className: css.name }, POLICY_NAME_ZH[policy.id] ?? policy.name),
           createElement('div', { className: css.meta },
-            `${POLICY_ACTION_ZH[policy.action] ?? policy.action} · 优先级 ${policy.priority}`),
+            `${POLICY_ACTION_ZH[policy.action] ?? UNKNOWN_ZH} · 优先级 ${policy.priority}`),
         ),
       )),
     ),
+    // 当前会话命中的策略（评估结果）。
+    evaluations.length > 0
+      ? createElement('div', { className: css.evalBlock },
+        createElement('div', { className: css.evalTitle }, '本会话命中'),
+        evaluations.map(evaluation => createElement('div', { key: `${evaluation.policyId}-${evaluation.action}`, className: css.evalRow },
+          createElement('span', { className: evaluation.action === 'deny' ? css.evalDeny : evaluation.action === 'warn' ? css.evalWarn : css.evalOk },
+            POLICY_ACTION_ZH[evaluation.action] ?? UNKNOWN_ZH),
+          createElement('span', { className: css.evalName },
+            POLICY_NAME_ZH[evaluation.policyId] ?? evaluation.policyId),
+        )),
+      )
+      : null,
   )
 }

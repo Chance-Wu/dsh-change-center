@@ -33,24 +33,18 @@ import type { ReviewResult, VerificationTask, ChangeRisk, ChangeEvent } from './
 
 declare module '@deepseek-ai/cordis' {
   interface Events {
-    /** A new file change was captured. */
-    'change:created'(change: FileChange): void
-    /** A captured change was approved. */
-    'change:approved'(change: FileChange): void
-    /** A captured change was rejected. */
-    'change:rejected'(change: FileChange): void
-    /** A captured change was marked applied. */
-    'change:applied'(change: FileChange): void
-    /** A captured change failed to apply. */
-    'change:failed'(change: FileChange, error: string): void
-    /** A captured change was rolled back. */
-    'change:rollback'(change: FileChange): void
+    /** A new file change was captured (Vibe Flow unified event model). */
+    'change.created'(change: FileChange): void
+    /** A captured change's status changed (approved / rejected / applied / failed / rolled_back). */
+    'change.updated'(change: FileChange, error?: string): void
     /** A change session was created. */
-    'change-session:created'(session: ChangeSession): void
-    /** A change session's status changed. */
-    'change-session:status'(session: ChangeSession): void
+    'session.created'(session: ChangeSession): void
+    /** A change session's status changed (still active). */
+    'session.updated'(session: ChangeSession): void
+    /** A change session reached a terminal status (completed / failed / cancelled). */
+    'session.completed'(session: ChangeSession): void
     /** An AI review completed for a session. */
-    'change:reviewed'(review: ReviewResult): void
+    'review.completed'(review: ReviewResult): void
     /** A verification task finished. */
     'verification:completed'(task: VerificationTask): void
     /** A change history event was recorded. */

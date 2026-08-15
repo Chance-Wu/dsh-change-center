@@ -1,6 +1,6 @@
 /**
  * JobService tests: background jobs settle to completed / failed / cancelled,
- * emit `job:settled`, and honor cancellation through their AbortSignal.
+ * emit `job.settled`, and honor cancellation through their AbortSignal.
  * @module dsh-change-center/tests
  */
 
@@ -19,11 +19,11 @@ async function waitFor(check: () => boolean, timeoutMs = 2000): Promise<void> {
 }
 
 describe('JobService', () => {
-  it('settles a completed job with its result and emits job:settled', async () => {
+  it('settles a completed job with its result and emits job.settled', async () => {
     const ctx = new Context()
     await ctx.plugin(JobService)
     const settled: string[] = []
-    ctx.on('job:settled', (job: Job) => { settled.push(job.id) })
+    ctx.on('job.settled', (job: Job) => { settled.push(job.id) })
 
     const job = ctx.jobs.submit('s-1', 'test-job', async () => 42)
     expect(job.status).toBe('pending')
