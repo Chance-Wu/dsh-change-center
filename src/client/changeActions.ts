@@ -1,11 +1,13 @@
 /**
  * Single source of truth for per-change action availability, derived from the
- * host state machine (ChangeService TRANSITIONS). Every entry point —
- * ReviewBar, ChangeTree quick actions — consumes this matrix so buttons stay
- * consistent across the surface.
+ * shared state model (models/ChangeState.ts CHANGE_ACTIONS). Every entry
+ * point — ReviewBar, ChangeTree quick actions — consumes this matrix so
+ * buttons stay consistent across the surface. The UI never decides legality
+ * on its own (3.x 状态机收敛).
  * @module dsh-change-center/client
  */
 
+import { CHANGE_ACTIONS } from '../models/ChangeState.ts'
 import type { ChangeStatus } from '../models/FileChange.ts'
 
 /** Which actions are available for a change in a given status. */
@@ -20,7 +22,7 @@ export interface ChangeActions {
 }
 
 /**
- * Actions allowed per status, mirroring the host TRANSITIONS:
+ * Actions allowed per status, from the shared CHANGE_ACTIONS table:
  * - approve: pending
  * - reject: pending | approved | failed
  * - apply: pending | approved
@@ -29,18 +31,13 @@ export interface ChangeActions {
  * - repend: rejected | rolled_back
  */
 export function actionsFor(status: ChangeStatus): ChangeActions {
-  switch (status) {
-    case 'pending':
-      return { canApprove: true, canReject: true, canApply: true, canRetryApply: false, canRollback: false, canRepend: false }
-    case 'approved':
-      return { canApprove: false, canReject: true, canApply: true, canRetryApply: false, canRollback: false, canRepend: false }
-    case 'failed':
-      return { canApprove: false, canReject: true, canApply: false, canRetryApply: true, canRollback: false, canRepend: false }
-    case 'applied':
-      return { canApprove: false, canReject: false, canApply: false, canRetryApply: false, canRollback: true, canRepend: false }
-    case 'rejected':
-      return { canApprove: false, canReject: false, canApply: false, canRetryApply: false, canRollback: false, canRepend: true }
-    case 'rolled_back':
-      return { canApprove: false, canReject: false, canApply: false, canRetryApply: false, canRollback: false, canRepend: true }
+  const actions = CHANGE_ACTIONS[status]
+  return {
+    canApprove: actions.includes('approve'),
+    canReject: actions.includes('reject'),
+    canApply: actions.includes('apply'),
+    canRetryApply: actions.includes('retry-apply'),
+    canRollback: actions.includes('rollback'),
+    canRepend: actions.includes('repend'),
   }
 }

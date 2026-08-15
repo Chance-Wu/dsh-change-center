@@ -55,6 +55,36 @@
   margin-top: 8px;
 }
 
+/* 3.0.9:脏状态弱视觉 —— 文件名旁小圆点 */
+.dirtyDot {
+  color: var(--dsw-alias-state-warn-primary);
+  font-size: var(--dsw-font-xxs-12);
+  line-height: 1;
+  flex: none;
+}
+
+/* 3.0.8:状态徽标(weight 驱动视觉权重) */
+.statusBadge {
+  flex: none;
+  font-size: var(--dsw-font-xxxs-11);
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 8px;
+  white-space: nowrap;
+}
+.statusBadge[data-weight='high'] {
+  color: var(--dsw-alias-state-error-primary);
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, transparent);
+}
+.statusBadge[data-weight='normal'] {
+  color: var(--dsw-alias-label-secondary);
+  background: var(--dsw-alias-bg-layer-3);
+}
+.statusBadge[data-weight='low'] {
+  color: var(--dsw-alias-label-tertiary);
+  background: var(--dsw-alias-bg-layer-3);
+}
+
 .modeTabs {
   display: flex;
   gap: 2px;

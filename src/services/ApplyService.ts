@@ -97,9 +97,12 @@ export class ApplyService extends Service {
   }
 
   /**
-   * Compare the on-disk content against the captured final state
-   * (`change.after`). Returns a conflict result when they differ and force
-   * is not set.
+   * Compare the on-disk content against the LAST content this plugin knows
+   * was on disk (`change.diskBaseline`; legacy records fall back to
+   * `change.after`). A mismatch means an external edit happened since — which
+   * must not be silently overwritten. A USER EDIT via the plugin only changes
+   * `after` (baseline stays), so applying the edited version is not treated
+   * as an external modification (3.x editor contract).
    */
   private guardConflict(
     change: FileChange,
@@ -108,17 +111,22 @@ export class ApplyService extends Service {
     force: boolean,
   ): ApplyResult | undefined {
     if (force) return undefined
+    const baseline = change.diskBaseline !== undefined ? change.diskBaseline : change.after
     // A captured create leaves the file present with the after content; a
     // captured modify leaves it present with the after content too. The file
     // must still hold that content (no external edit since capture).
-    if (!exists && change.operation !== 'delete') {
+    if (!exists && baseline !== null) {
       // The file vanished after capture — treat as an external change.
-      return { kind: 'conflict', currentHash: 'missing', beforeHash: sha256(change.after ?? '') }
+      return { kind: 'conflict', currentHash: 'missing', beforeHash: sha256(baseline ?? '') }
+    }
+    if (exists && baseline === null) {
+      // The file appeared after capture (was deleted) — external change.
+      return { kind: 'conflict', currentHash: sha256(currentText ?? ''), beforeHash: 'absent' }
     }
     const currentHash = sha256(currentText ?? '')
-    const afterHash = sha256(change.after ?? '')
-    if (currentHash !== afterHash) {
-      return { kind: 'conflict', currentHash, beforeHash: afterHash }
+    const baselineHash = sha256(baseline ?? '')
+    if (currentHash !== baselineHash) {
+      return { kind: 'conflict', currentHash, beforeHash: baselineHash }
     }
     return undefined
   }

@@ -33,6 +33,22 @@ describe('JobService', () => {
     expect(settled).toContain(job.id)
   })
 
+  it('emits job.started when the work begins (SSE 契约)', async () => {
+    const ctx = new Context()
+    await ctx.plugin(JobService)
+    const started: string[] = []
+    ctx.on('job.started', (job: Job) => { started.push(job.id) })
+
+    const job = ctx.jobs.submit('s-start', 'start-job', async () => 1)
+    await waitFor(() => job.status === 'completed')
+    expect(started).toContain(job.id)
+    // 已取消(未真正运行)的作业不触发 started。
+    const cancelled = ctx.jobs.submit('s-cancel', 'never', async () => 2)
+    ctx.jobs.cancel(cancelled.id)
+    await waitFor(() => cancelled.status === 'cancelled')
+    expect(started).not.toContain(cancelled.id)
+  })
+
   it('fails a job whose work throws', async () => {
     const ctx = new Context()
     await ctx.plugin(JobService)

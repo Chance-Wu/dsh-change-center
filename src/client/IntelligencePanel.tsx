@@ -122,34 +122,55 @@ export function IntelligencePanel(props: IntelligencePanelProps): ReactElement {
         createElement('button', { onClick: () => retryRef.current?.(), className: baseCss.buttonMini }, '重试'),
       )
       : null,
-    createElement('div', { className: css.loopRow },
-      createElement('button', { onClick: runLoop, disabled: busy, className: baseCss.buttonGhost }, busy ? '运行中…' : '运行修复循环'),
-      jobRunning
-        ? createElement('button', { onClick: cancelCurrent, className: baseCss.buttonDanger }, '取消')
-        : null,
-      loopMessage !== null ? createElement('span', { className: css.loopMessage }, loopMessage) : null,
+    // 3.2.4:More 信息架构 —— 分组收纳,默认全部折叠。
+    createElement(Group, { title: '智能分析' },
+      createElement(ReviewCard, {
+        review, busy, onRun: () => run(() => api.reviewRun(sessionId)),
+        onLocate: onLocate,
+        changes,
+        onFix: (findingId) => {
+          // Fix the first file change matching the finding path.
+          api.sessionChanges(sessionId, { limit: 500 }).then(page => {
+            const change = page.items.find(c => c.kind === 'file' && findingPathMatches(c.path, review?.findings.find(f => f.id === findingId)?.filePath ?? ''))
+            if (change === undefined) {
+              setError('没有与这条发现匹配的文件变更')
+              return
+            }
+            run(() => api.fixRun(sessionId, review?.sessionId ?? sessionId, findingId, change.id))
+          }).catch(err => setError(err instanceof Error ? err.message : String(err)))
+        },
+      }),
+      createElement(RiskCard, { risk, busy, onAnalyze: () => run(() => api.riskAnalyze(sessionId)) }),
     ),
-    createElement(GitCard, { git, workspace }),
-    createElement(ReviewCard, {
-      review, busy, onRun: () => run(() => api.reviewRun(sessionId)),
-      onLocate: onLocate,
-      changes,
-      onFix: (findingId) => {
-        // Fix the first file change matching the finding path.
-        api.sessionChanges(sessionId, { limit: 500 }).then(page => {
-          const change = page.items.find(c => c.kind === 'file' && findingPathMatches(c.path, review?.findings.find(f => f.id === findingId)?.filePath ?? ''))
-          if (change === undefined) {
-            setError('没有与这条发现匹配的文件变更')
-            return
-          }
-          run(() => api.fixRun(sessionId, review?.sessionId ?? sessionId, findingId, change.id))
-        }).catch(err => setError(err instanceof Error ? err.message : String(err)))
-      },
-    }),
-    createElement(RiskCard, { risk, busy, onAnalyze: () => run(() => api.riskAnalyze(sessionId)) }),
-    createElement(VerificationCard, { tasks: verification, busy, onRun: () => run(() => api.verificationRun(sessionId)) }),
-    createElement(PolicyPanel, { sessionId, api, onChanged }),
-    createElement(TimelineCard, { events: timeline }),
+    createElement(Group, { title: '验证' },
+      createElement(VerificationCard, { tasks: verification, busy, onRun: () => run(() => api.verificationRun(sessionId)) }),
+    ),
+    createElement(Group, { title: '开发' },
+      createElement(GitCard, { git, workspace }),
+      createElement(PolicyPanel, { sessionId, api, onChanged }),
+      createElement(TimelineCard, { events: timeline }),
+    ),
+    createElement(Group, { title: '修复' },
+      createElement('div', { className: css.loopRow },
+        createElement('button', { onClick: runLoop, disabled: busy, className: baseCss.buttonGhost }, busy ? '运行中…' : '运行修复循环'),
+        jobRunning
+          ? createElement('button', { onClick: cancelCurrent, className: baseCss.buttonDanger }, '取消')
+          : null,
+        loopMessage !== null ? createElement('span', { className: css.loopMessage }, loopMessage) : null,
+      ),
+    ),
+  )
+}
+
+/** 3.2.4:分组折叠容器(默认收起,点击标题展开)。 */
+function Group(props: { title: string; children?: ReactElement | ReactElement[] }): ReactElement {
+  const [expanded, setExpanded] = useState(false)
+  return createElement('div', { className: css.group },
+    createElement('button', {
+      onClick: () => setExpanded(!expanded),
+      className: css.groupTitle,
+    }, `${expanded ? '▾' : '▸'} ${props.title}`),
+    expanded ? createElement('div', { className: css.groupBody }, props.children) : null,
   )
 }
 

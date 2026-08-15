@@ -16,6 +16,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-fs'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import type { FileChange, ChangeOperation, ChangeStatus, ChangeSource, ChangeKind } from '../models/FileChange.ts'
+import { CHANGE_TRANSITIONS as TRANSITIONS } from '../models/ChangeState.ts'
 import { renderUnified } from './DiffService.ts'
 import { JsonlStore, maxIdSuffix } from './JsonlStore.ts'
 import type { ApplyService, ApplyResult } from './ApplyService.ts'
@@ -99,16 +100,7 @@ export interface AcceptAllResult {
   blocked: { id: string; message: string }[]
 }
 
-/** Valid transition map of the review state machine. */
-const TRANSITIONS: Record<ChangeStatus, ChangeStatus[]> = {
-  // failed covers apply-attempt failures from any reviewable state.
-  pending: ['approved', 'rejected', 'applied', 'failed'],
-  approved: ['applied', 'rejected', 'pending', 'failed'],
-  rejected: ['pending'],
-  applied: ['pending', 'rolled_back'],
-  failed: ['pending', 'applied', 'approved', 'rejected'],
-  rolled_back: ['pending'],
-}
+/** 状态机唯一事实源(3.x):见 `models/ChangeState.ts`(host/client 共用)。 */
 
 /**
  * The change-center store: owns every {@link FileChange}, assigns ids,
@@ -174,6 +166,8 @@ export class ChangeService extends Service {
       operation: input.operation,
       before: input.before,
       after: input.after,
+      // 3.x:捕获发生在工具写盘之后,已知磁盘状态 = after(命令/外部记录无磁盘态)。
+      diskBaseline: (input.kind ?? 'file') === 'file' ? input.after : undefined,
       diff: renderUnified(input.before, input.after),
       status: 'pending',
       source: input.source,
@@ -191,7 +185,10 @@ export class ChangeService extends Service {
   /** All recorded changes, newest first. */
   list(): FileChange[] {
     void this.ensureLoaded()
-    return [...this.changes.values()].sort((a, b) => b.createdAt - a.createdAt)
+    // 3.x Batch 契约:createdAt 相同时(同一毫秒内的两次写入)按记录序号
+    // 决出「最新」,保证同路径去重时最新变更稳定胜出。
+    const seqOf = (id: string): number => Number(id.split('-').pop() ?? 0)
+    return [...this.changes.values()].sort((a, b) => b.createdAt - a.createdAt || seqOf(b.id) - seqOf(a.id))
   }
 
   /** Changes belonging to one session, newest first. */
@@ -277,6 +274,18 @@ export class ChangeService extends Service {
       this.ctx.emit('change.updated', change)
       return { kind: 'applied', operation: 'execute' }
     }
+    // 3.x Apply 语义统一:策略 deny 是真正的 Guard(与批量一致),force 显式绕过;
+    // 变更保持 pending,由 UI 给出「仍然应用」路径。
+    if (!force) {
+      const policies: { evaluate: (changes: FileChange[]) => Promise<{ action: string; reason: string }[]> } | undefined = this.ctx.get('policies')
+      if (policies !== undefined) {
+        const evaluations = await policies.evaluate([change])
+        const denial = evaluations.find(evaluation => evaluation.action === 'deny')
+        if (denial !== undefined) {
+          return { kind: 'error', message: `policy deny: ${denial.reason}` }
+        }
+      }
+    }
     const applyEngine: ApplyService | undefined = this.ctx.get('applyEngine')
     const snapshots: SnapshotService | undefined = this.ctx.get('snapshots')
     if (applyEngine === undefined || snapshots === undefined) {
@@ -289,6 +298,8 @@ export class ChangeService extends Service {
       await snapshots.snapshot(change)
       const result = await applyEngine.apply(change, force)
       if (result.kind === 'applied') {
+        // 3.x:应用成功后,已知磁盘状态 = 当前 after(删除 → 文件不存在)。
+        change.diskBaseline = change.operation === 'delete' ? null : change.after
         this.transition(id, 'applied')
         this.ctx.emit('change.updated', change)
       } else if (result.kind === 'conflict') {
@@ -321,6 +332,8 @@ export class ChangeService extends Service {
     }
     const result = await snapshots.rollback(change)
     if (result.kind === 'rolled-back') {
+      // 3.x:回滚后磁盘 = before(创建 → 文件不存在)。
+      change.diskBaseline = change.operation === 'create' ? null : change.before
       this.transition(id, 'rolled_back')
       this.ctx.emit('change.updated', change)
     }

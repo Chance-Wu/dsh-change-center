@@ -54,6 +54,13 @@ export interface FileChange {
   before: string | null
   /** Full post-mutation text (LF-normalized), or null for a delete. */
   after: string | null
+  /**
+   * 3.x:本插件最后一次确认的磁盘内容(null = 文件不存在)。捕获时 = after
+   * (工具已写完),apply 成功后 = after,rollback 后 = before。编辑器修改
+   * 不改变它 —— 因此「用户编辑 → Apply」不会误判为外部修改,而外部改动
+   * 仍会被 hash 守卫拦截。旧记录缺省时回退为与 after 比较。
+   */
+  diskBaseline?: string | null
   /** Unified-diff text derived from before/after. */
   diff: string
   status: ChangeStatus

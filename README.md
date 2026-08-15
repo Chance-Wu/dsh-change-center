@@ -10,24 +10,31 @@ DeepSeek Harness 插件:文件变更的**捕获 → 审查 → 拒绝 / 应用 �
 > 批量应用无风险一步到位 + toast **Undo**,有风险才给「⚠ … [查看] [仍然全部应用]」轻确认;AI Review 按需增强;
 > 编辑器修改带**脏状态守卫**(未保存切换文件先三选:保存并切换/放弃并切换/取消);会话列表按 今天/昨天/更早 浏览,
 > 自动跟随正在工作的 Turn;Issues 过滤器(全部/待处理/问题)。
+>
+> **3.x「Polish & Flow」(2025-08)**:不增加新能力,只收敛 —— Focus 状态卡只回答「有什么变化?要不要应用?」
+> (状态行 + 风险文字行 + **[Review] [全部应用]**);Undo 是 5 秒倒计时的短生命周期操作;状态机收敛为单一事实源
+> `models/ChangeState.ts`(host 转移表 + `actionsFor` + `statusMeta` 同源);Apply/Rollback 语义统一:
+> **用户编辑 → Apply 直接写入编辑版**(新增 `diskBaseline` 已知磁盘状态,编辑器修改不再被误判为外部修改),
+> 策略 deny 成为真正的单条 Guard(「仍然应用」= force);树行 hover 只显示主操作 + `···` 展开其余;
+> More 面板按 智能分析/验证/开发/修复 分组默认折叠;测试转向 6 组行为契约(状态机 / Apply / Rollback / Batch / SSE / 黄金流程)。
 
 ## 功能
 
 - **捕获**:监听 `tools/result`,把 `write`/`edit` 结果记为文件变更、`bash` 记为命令记录,自动按 agent turn 分组为变更会话;会话以「Turn N · HH:MM」命名(一次 turn = 一次 agent 回复周期内捕获的变更)。
-- **Vibe UI(2.x)**:
-  - 变更中心两个视图:**当前**(正在工作的 Turn 的 Focus 卡片,自动跟随,可「回到当前」)/ **会话**(按 今天/昨天/更早 分组的历史时间线)。
-  - 会话面板 Focus(极简卡片:摘要 + `✓ N files changed +X -Y`)⇄ Review(文件树 + diff + 批量操作)双模式;conversation 标签页默认 Focus。
-  - 会话头部自然语言摘要(如「修改 src/auth 下 3 个文件」;host 侧随会话落库 `ChangeSession.summary`,重启后仍在;旧会话由客户端启发式 `summarizeChanges` 兜底);状态视觉按 V-8 表(applied=主成功、failed=突出、rejected/rolled_back=弱化)。
-  - 顶部固定批量操作:**[✓ 全部应用] [拒绝] [+ 全部回滚]**,无风险一步到位 → toast `✓ N 个变更已应用 [Undo]`;有风险(外部修改/策略 deny)→「⚠ N 个变更… [查看] [仍然全部应用(force)]」轻确认,不弹复杂对话框。
-  - Issues 过滤器:**全部 / 待处理 / 问题**(问题 = 应用失败 ∪ 命中 error/critical 审查发现 ∪ 策略 deny 的变更)。
+- **Vibe UI(2.x / 3.x)**:
+  - 变更中心两个视图:**当前**(正在工作的 Turn 的 Focus 卡片,自动跟随,可「回到当前」)/ **会话**(按 今天/昨天/更早 分组的历史时间线,行内带一句话摘要)。
+  - 会话面板 Focus 状态卡(摘要 + `✓ N files changed +X -Y` + 风险文字行 + `● Ready/AI 工作中` + **[Review] [全部应用]**;无待审时显示「✓ 已全部应用」)⇄ Review 完整控制。
+  - 会话头部自然语言摘要(单文件 → 单目录 → 双目录 → 混合,如「修改 src/auth 和 src/user 下 5 个文件」;host 随会话落库 `ChangeSession.summary`,客户端兜底共用同一实现 `models/sessionSummary.ts`);状态视觉按 V-8 表(applied=主成功、failed=突出、rejected/rolled_back=弱化,pending=○)。
+  - 顶部固定批量操作:**[✓ 全部应用] [拒绝] [+ 全部回滚]**,无风险一步到位 → toast `✓ N 个变更已应用 [Undo 5s]`(倒计时后消失,回滚仍走 Review → 全部回滚);有风险(外部修改/策略 deny)→「⚠ N 个变更… [查看] [仍然全部应用(force)]」轻确认,不弹复杂对话框。
+  - Issues 过滤器:**全部 / 待处理(pending+approved+failed)/ 问题**(问题 = 应用失败 ∪ 命中 error/critical 审查发现 ∪ 策略 deny 的变更)。
   - 逐变更风险标记:策略 deny 的变更行尾显示 **⛔**(`PolicyService.evaluateAll` 逐变更命中,`policy-evaluation` 接口返回 `hits`);冲突详情展示 `磁盘当前 hash ≠ 捕获时 hash`。
   - 键盘快捷键(输入框聚焦时不触发):`Cmd/Ctrl+Enter` 应用 · `Esc` 收起为 Focus · `↑/↓`/`J`/`K` 切换文件 · `R` 打开审查 · `A` 应用 · `X` 拒绝 · `Z` 回滚。
-  - DiffViewer 文件头显示 `+N -M`;静态样式全部收敛到 CSS Module(无内联残留)。
-  - 编辑器脏状态:**✎ 已修改 + [保存修改] [放弃]**,未保存时切换文件/会话先三选;保存后重算 before/after/diff,保证 Apply 应用的永远是用户看到的版本。
-  - AI Review / Risk / Verification / Git / History / AI Fix 全部收进 `··· / 更多`;风险默认只显示三级信号,不显示数字评分。
+  - DiffViewer 核心工作区:文件头 `+N -M` + 状态徽标(weight 驱动);脏状态弱视觉为文件名旁 `●`;静态样式全部收敛到 CSS Module。
+  - 编辑器脏状态守卫:**保存后重算 before/after/diff,Apply 写入的一定是用户看到的版本**(`diskBaseline` 保证用户编辑不触发假冲突),未保存切换文件/会话先三选。
+  - AI Review / Risk / Verification / Git / History / AI Fix 收进 `··· / 更多`,按 智能分析/验证/开发/修复 分组、默认折叠;风险默认只显示三级信号,不显示数字评分。
 - **审查**:
-  - 变更树:**默认目录树**(目录可折叠、行统计、全部展开/折叠),可切换「按扩展名 `*.ext`」分组(含聚合行数);路径为工作区相对路径;同一文件多次写入**只显示最新一次**(按路径去重);行悬停快捷操作:接受 / 拒绝 / 回滚(applied)/ 重新处理(rejected、rolled_back);行尾状态字形(failed=!,applied=✓)。
-  - 统一 diff 视图(纯文本 / 左右对照 / 编辑器)+ 每变更操作栏:接受 / 拒绝 / 应用(pending、approved)、重试应用(failed)、回滚(applied)、重新处理(rejected、rolled_back);按钮可用性由单一 `actionsFor` 矩阵驱动,编辑器可直接改后保存。
+  - 变更树:**默认目录树**(目录可折叠、行统计、全部展开/折叠),可切换「按扩展名 `*.ext`」分组(含聚合行数);路径为工作区相对路径;同一文件多次写入**只显示最新一次**(按路径去重);行悬停只显示**主操作**(应用/重试/回滚/重新处理)+ **`···`** 展开其余(接受/拒绝);行尾状态字形(failed=!,applied=✓)+ deny ⛔。
+  - 统一 diff 视图(纯文本 / 左右对照 / 编辑器)+ 每变更操作栏:接受 / 拒绝 / 应用(pending、approved)、重试应用(failed)、回滚(applied)、重新处理(rejected、rolled_back);按钮可用性由单一 `actionsFor` 矩阵驱动(源自共享 `models/ChangeState.ts`),编辑器可直接改后保存。
 - **会话级批量操作**:「全部应用」(批准全部待审并写回,返回 `{approved, applied, skipped, superseded, failed, blocked}`,superseded=被覆盖的旧写入;`force` 时绕过 deny 门禁与外部修改守卫)、「全部拒绝」、「全部回滚」(撤销全部已应用,返回 `{rolledBack, missing, failed}`,缺快照即无法恢复);批量结果以 toast 呈现,应用成功带 Undo 入口。
 - **辅助**:Git 仓库信息与未提交文件列表、AI 审查(结构化 JSON findings,可按需运行,结果不改变变更状态机)、确定性风险规则(评分仅供内部,UI 只显示三级信号)、验证任务、策略门控(allow/warn/deny,**批量应用受 deny 拦截**,可 force)、历史时间线、设置导航「变更中心」分支图标。
 - **后台任务**:验证 / AI 审查 / AI 修复 / 修复循环以 job 形式提交,HTTP 请求立即返回 `{job}`;客户端持有 `JobHandle {jobId, done, cancel}`,智能面板在任务运行中显示「取消」按钮、失败显示「重试」;`/events` SSE 流把变更/会话/job 事件推给浏览器,列表自动刷新、无需轮询。
@@ -50,7 +57,11 @@ src/
 ```
 
 变更状态机:`pending → approved → applied → rolled_back`,以及 `rejected` / `failed`,
-非法转移由 `TRANSITIONS` 表直接拒绝(状态动作返回结构化错误,不抛 500)。
+非法转移由状态模型直接拒绝(状态动作返回结构化错误,不抛 500)。
+
+> **3.x 单一事实源**:转移表(`ChangeService` 的 `TRANSITIONS`)、操作矩阵(`actionsFor`)、
+> 展示元数据(`statusMeta`)全部源自共享的 `src/models/ChangeState.ts` —— 任何组件都不能自行推断
+> 「这个按钮该不该出现」。同路径最新变更按 `createdAt` + 记录序号稳定决出(同毫秒写入不产生歧义)。
 
 ## 变更操作矩阵(单一事实源 `actionsFor`,操作栏与目录树共用)
 
@@ -77,7 +88,7 @@ pnpm build       # tsc + tsdown(浏览器半边打包 lib/client.js)
 ```
 
 > 测试将 `$DSH_HOME` 指向临时目录,持久化写入可写区域(与 DSH 沙箱兼容)。
-> 当前测试基线:**164 个用例 / 23 个文件**(含真实 HTTP 路由集成测试 `routes-e2e.spec.ts`)。
+> 当前测试基线:**175 个用例 / 24 个文件**(含真实 HTTP 路由集成测试 `routes-e2e.spec.ts`、行为契约 `contracts.spec.ts`)。
 >
 > **沙箱说明**(`src/services/pluginFs.ts`):插件自有状态(`$DSH_HOME/change-center/` 下 store/snapshot/history/policies 写入)经
 > `ctx.fs.writeText(..., PLUGIN_STATE_POLICY)`(`danger-full-access`)写入;「应用/回滚」的工作区写回经 `workspaceWritePolicy(change.cwd)`

@@ -155,6 +155,26 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
     return () => clearTimeout(timer)
   }, [toast])
 
+  // 3.0.4:Undo 是短生命周期操作状态 —— 5 秒倒计时后消失,回滚仍走 Review → 全部回滚。
+  const [undoRemaining, setUndoRemaining] = useState<number | null>(null)
+  useEffect(() => {
+    if (toast?.undo === undefined) {
+      setUndoRemaining(null)
+      return
+    }
+    setUndoRemaining(5)
+    const timer = setInterval(() => {
+      setUndoRemaining(prev => {
+        if (prev === null || prev <= 1) {
+          clearInterval(timer)
+          return null
+        }
+        return prev - 1
+      })
+    }, 1000)
+    return () => clearInterval(timer)
+  }, [toast])
+
   const afterAction = (): void => {
     refresh()
     refreshIntelligence()
@@ -218,8 +238,11 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
     return ids
   }, [fileChanges, review, deniedIds])
 
+  // 3.0.6:待处理 = pending + approved + failed(failed 仍需用户处理);问题 = 需要用户注意的集合。
   const filteredChanges = useMemo(() => {
-    if (filter === 'pending') return fileChanges.filter(c => c.status === 'pending')
+    if (filter === 'pending') {
+      return fileChanges.filter(c => c.status === 'pending' || c.status === 'approved' || c.status === 'failed')
+    }
     if (filter === 'issues') return fileChanges.filter(c => issueIds.has(c.id))
     return fileChanges
   }, [fileChanges, filter, issueIds])
@@ -302,6 +325,13 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
   /** Tree quick actions + the review bar share one action path. */
   const quickAction = (id: string, action: 'approve' | 'reject' | 'rollback' | 'repend'): void => {
     api.changeAction(id, action)
+      .then(afterAction)
+      .catch(err => setError(err instanceof Error ? err.message : String(err)))
+  }
+
+  /** 3.x:树行主操作 = 应用/重试应用(与 ReviewBar 同一路径)。 */
+  const quickApply = (id: string): void => {
+    api.applyChange(id)
       .then(afterAction)
       .catch(err => setError(err instanceof Error ? err.message : String(err)))
   }
@@ -396,8 +426,14 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
     setEditorDraft(target?.after ?? '')
   }
 
-  // ── Focus 模式(V-2):极小卡片 ─────────────────────────────────────
+  // ── Focus 模式(3.x):状态卡 —— 只回答「有什么变化?要不要应用?」 ─────
   if (mode === 'focus') {
+    // 3.0.5 风险文字行(不显示任何分数/规则)。
+    const riskLine = signal.level === 'block'
+      ? `⛔ ${deniedIds.size} 个变更被策略阻止`
+      : signal.level === 'warn'
+        ? `⚠ ${issueIds.size} 个变更需要注意`
+        : '✓ 未发现风险'
     return createElement(ErrorBoundary, null,
       createElement('div', { className: css.panel },
         error !== null ? createElement('p', { className: css.error }, error) : null,
@@ -405,13 +441,9 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
           createElement('div', { className: css.focusHead },
             createElement('span', { className: css.focusTitle }, name),
             createElement('span', { className: sessionStatusClass(status, baseCss, css) }, sessionStatusZh(status)),
-            createElement(RiskSignal, { level: signal.level, hint: signal.hint }),
           ),
           createElement('div', { className: css.focusSummary }, summary),
           createElement('div', { className: css.focusStats },
-            status === 'active'
-              ? createElement('span', { className: css.focusWorking }, '● AI 工作中')
-              : null,
             createElement('span', null, `✓ ${displayStats.files} files changed`),
             displayStats.additions > 0
               ? createElement('span', { className: css.statsAdd }, `+${displayStats.additions}`)
@@ -420,11 +452,34 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
               ? createElement('span', { className: css.statsDel }, `-${displayStats.deletions}`)
               : null,
           ),
-          createElement('button', {
-            onClick: () => setMode('review'),
-            className: baseCss.buttonPrimary,
-          }, '查看变更'),
+          createElement('div', { className: css.focusRisk }, riskLine),
+          createElement('div', { className: css.focusStatus },
+            status === 'active'
+              ? createElement('span', { className: css.focusWorking }, '● AI 工作中')
+              : createElement('span', null, '● Ready'),
+          ),
+          // 3.0.3:Focus 只给一个主要动作;无待审时显示「✓ 已全部应用」。
+          createElement('div', { className: css.focusActions },
+            createElement('button', {
+              onClick: () => setMode('review'),
+              className: baseCss.buttonGhost,
+            }, 'Review'),
+            createElement('button', {
+              onClick: () => applyAll(false),
+              disabled: busy || pendingCount === 0,
+              className: baseCss.buttonPrimary,
+            }, busy ? '处理中…' : pendingCount === 0 ? '✓ 已全部应用' : '全部应用'),
+          ),
         ),
+        // 批量反馈(toast/轻确认)在 Focus 下同样可见。
+        toast !== null ? renderToast(toast, css, baseCss, setToast, undoRemaining) : null,
+        warnState !== null
+          ? createElement(WarnBlock, {
+            state: warnState,
+            onDismiss: () => setWarnState(null),
+            onForce: () => applyAll(true),
+          })
+          : null,
       ),
     )
   }
@@ -509,18 +564,8 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
         })
         : null,
 
-      // toast(含 Undo)。
-      toast !== null
-        ? createElement('div', {
-          className: toast.kind === 'error' ? css.toastError : toast.kind === 'warn' ? css.toastWarn : css.toastOk,
-        },
-        createElement('span', null, toast.text),
-        toast.undo !== undefined
-          ? createElement('button', { onClick: toast.undo, className: baseCss.buttonMini }, 'Undo')
-          : null,
-        createElement('button', { onClick: () => setToast(null), className: css.toastClose }, '×'),
-        )
-        : null,
+      // toast(含 Undo 倒计时,3.0.4)。
+      toast !== null ? renderToast(toast, css, baseCss, setToast, undoRemaining) : null,
 
       // V-7 未保存修改确认条。
       pendingSelect !== null
@@ -543,6 +588,7 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
           onReject: (id) => quickAction(id, 'reject'),
           onRollback: (id) => quickAction(id, 'rollback'),
           onRepend: (id) => quickAction(id, 'repend'),
+          onApply: quickApply,
           disabled: panelLocked,
           // S-6:策略 deny 的变更显示 ⛔。
           deniedIds,
@@ -586,6 +632,26 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
           : null,
       ),
     ),
+  )
+}
+
+/** toast(含 3.0.4 Undo 倒计时);Focus 与 Review 共用。 */
+function renderToast(
+  toast: Toast,
+  cssMap: Record<string, string>,
+  base: Record<string, string>,
+  setToast: (toast: Toast | null) => void,
+  undoRemaining: number | null,
+): ReactElement {
+  return createElement('div', {
+    className: toast.kind === 'error' ? cssMap.toastError : toast.kind === 'warn' ? cssMap.toastWarn : cssMap.toastOk,
+  },
+  createElement('span', null, toast.text),
+  // Undo 是短生命周期操作:倒计时结束即消失,回滚仍走 Review → 全部回滚。
+  toast.undo !== undefined && undoRemaining !== null
+    ? createElement('button', { onClick: toast.undo, className: base.buttonMini }, `Undo ${undoRemaining}s`)
+    : null,
+  createElement('button', { onClick: () => setToast(null), className: cssMap.toastClose }, '×'),
   )
 }
 

@@ -1,11 +1,12 @@
 /**
- * summarizeChanges tests (Vibe UI V-3): the client-side session summary
- * heuristic derives "what did AI change" from paths and operations.
+ * summarizeChanges tests (3.x 摘要质量提升):shared heuristic priorities —
+ * 单文件 → 单目录 → 双目录 → 混合. Host persistence and the client fallback
+ * both use the same `models/sessionSummary.ts` implementation.
  * @module dsh-change-center/tests
  */
 
 import { describe, expect, it } from 'vitest'
-import { summarizeChanges } from '../src/client/summary.ts'
+import { summarizeChanges } from '../src/models/sessionSummary.ts'
 import type { WireChange } from '../src/client/index.ts'
 
 /** Build a minimal file change for pure-function tests. */
@@ -18,8 +19,16 @@ function change(over: Partial<WireChange> = {}): WireChange {
   }
 }
 
-describe('summarizeChanges', () => {
-  it('mixed operations under one shared directory → 修改 <dir> 下 N 个文件', () => {
+describe('summarizeChanges (3.x)', () => {
+  it('single file → 修改 <path> (no dir)', () => {
+    expect(summarizeChanges([change({ path: '/ws/src/auth/LoginService.java' })])).toBe('修改 src/auth/LoginService.java')
+  })
+
+  it('single file at root → 修改 <name>', () => {
+    expect(summarizeChanges([change({ path: '/ws/package.json' })])).toBe('修改 package.json')
+  })
+
+  it('multiple files under one directory → 修改 <dir> 下 N 个文件', () => {
     const summary = summarizeChanges([
       change({ path: '/ws/src/auth/token.ts' }),
       change({ path: '/ws/src/auth/service.ts', operation: 'create', before: null, after: 'x\n' }),
@@ -28,7 +37,7 @@ describe('summarizeChanges', () => {
     expect(summary).toBe('修改 src/auth 下 3 个文件')
   })
 
-  it('create-only → 新增 <dir> 下 N 个文件', () => {
+  it('create-only under one directory → 新增 <dir> 下 N 个文件', () => {
     const summary = summarizeChanges([
       change({ path: '/ws/src/lib/util.ts', operation: 'create', before: null, after: 'x\n' }),
       change({ path: '/ws/src/lib/helper.ts', operation: 'create', before: null, after: 'y\n' }),
@@ -36,27 +45,25 @@ describe('summarizeChanges', () => {
     expect(summary).toBe('新增 src/lib 下 2 个文件')
   })
 
-  it('delete-only → 删除 <dir> 下 N 个文件', () => {
+  it('exactly two directories → 修改 <dirA> 和 <dirB> 下 N 个文件', () => {
     const summary = summarizeChanges([
-      change({ path: '/ws/src/security/AuthConfig.java', operation: 'delete', before: 'x\n', after: null }),
+      change({ path: '/ws/src/auth/a.ts' }),
+      change({ path: '/ws/src/user/b.ts' }),
+      change({ path: '/ws/src/user/c.ts' }),
     ])
-    expect(summary).toBe('删除 src/security 下 1 个文件')
+    expect(summary).toBe('修改 src/auth 和 src/user 下 3 个文件')
   })
 
-  it('files in unrelated directories → no shared directory part', () => {
-    const summary = summarizeChanges([
+  it('three+ directories or root files → mixed 修改 N 个文件，包括 <first>', () => {
+    expect(summarizeChanges([
       change({ path: '/ws/src/a.ts' }),
       change({ path: '/ws/tests/b.spec.ts' }),
-    ])
-    expect(summary).toBe('修改 2 个文件')
-  })
-
-  it('files at the workspace root share no directory', () => {
-    const summary = summarizeChanges([
+      change({ path: '/ws/docs/c.md' }),
+    ])).toBe('修改 3 个文件，包括 src/a.ts')
+    expect(summarizeChanges([
+      change({ path: '/ws/src/a.ts' }),
       change({ path: '/ws/package.json' }),
-      change({ path: '/ws/README.md' }),
-    ])
-    expect(summary).toBe('修改 2 个文件')
+    ])).toBe('修改 2 个文件，包括 src/a.ts')
   })
 
   it('empty / command-only input → 无文件变更', () => {

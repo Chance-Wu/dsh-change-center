@@ -22,6 +22,7 @@ import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import type { Session } from '@deepseek-ai/dsh-session'
 import type { ChangeSession, ChangeSessionStatus, ChangeStatistics } from '../models/ChangeSession.ts'
 import type { ChangeOperation } from '../models/FileChange.ts'
+import { summarizeChanges } from '../models/sessionSummary.ts'
 import type { ChangeService } from './ChangeService.ts'
 import { countDiff } from './DiffService.ts'
 import { JsonlStore, maxIdSuffix } from './JsonlStore.ts'
@@ -274,35 +275,11 @@ function relPathOf(change: { path: string; cwd: string }): string {
 }
 
 /**
- * 会话自然语言摘要(与客户端 summarizeChanges 同一启发式,host 侧落库):
- * 「修改 src/auth 下 3 个文件」/「新增 src/lib 下 2 个文件」/「删除 1 个文件」。
+ * 会话自然语言摘要(3.x):host 与客户端共用 `models/sessionSummary.ts` 的
+ * `summarizeChanges`,保证落库摘要与客户端兜底文案一致。
  */
 function deriveSummary(opsByRelPath: Map<string, ChangeOperation>): string {
-  const files = [...opsByRelPath.entries()]
-  if (files.length === 0) return ''
-  const ops = { create: 0, modify: 0, delete: 0, rename: 0 }
-  const dirs: string[] = []
-  for (const [path, op] of files) {
-    if (op === 'create' || op === 'modify' || op === 'delete' || op === 'rename') ops[op] += 1
-    const idx = path.lastIndexOf('/')
-    if (idx > 0) dirs.push(path.slice(0, idx))
-  }
-  const verb = ops.create === files.length ? '新增' : ops.delete === files.length ? '删除' : '修改'
-  const dir = commonDir(dirs)
-  return dir.length > 0 ? `${verb} ${dir} 下 ${files.length} 个文件` : `${verb} ${files.length} 个文件`
-}
-
-/** 所有路径共享的最长目录前缀。 */
-function commonDir(dirs: string[]): string {
-  if (dirs.length === 0) return ''
-  const parts = dirs[0]!.split('/')
-  let depth = 0
-  outer: for (let i = 0; i < parts.length; i++) {
-    const prefix = parts.slice(0, i + 1).join('/')
-    for (const dir of dirs) {
-      if (!(dir === prefix || dir.startsWith(`${prefix}/`))) break outer
-    }
-    depth = i + 1
-  }
-  return parts.slice(0, depth).join('/')
+  return summarizeChanges(
+    [...opsByRelPath.entries()].map(([path, operation]) => ({ path, cwd: '', operation, kind: 'file' })),
+  )
 }

@@ -9,7 +9,7 @@ import { statusMeta } from '../src/client/statusMeta.ts'
 
 describe('statusMeta', () => {
   it('maps every status to icon + label + weight (applied high, rejected/rolled_back low)', () => {
-    expect(statusMeta('pending')).toEqual({ icon: '●', label: '待处理', weight: 'normal' })
+    expect(statusMeta('pending')).toEqual({ icon: '○', label: '待处理', weight: 'normal' })
     expect(statusMeta('approved')).toEqual({ icon: '●', label: '已接受', weight: 'normal' })
     expect(statusMeta('applied')).toEqual({ icon: '✓', label: '已应用', weight: 'high' })
     expect(statusMeta('rejected')).toEqual({ icon: '×', label: '已拒绝', weight: 'low' })

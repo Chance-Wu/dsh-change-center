@@ -279,6 +279,10 @@ function SessionTimeline(props: {
         createElement('span', { className: css.sessionIcon, title: meta.label }, meta.icon),
         createElement('span', { className: css.sessionMain },
           createElement('span', { className: css.sessionName }, s.name),
+          // 3.x:行内一句话摘要(host 落库;旧会话缺省时省略)。
+          s.summary !== undefined && s.summary.length > 0
+            ? createElement('span', { className: css.sessionSummary }, s.summary)
+            : null,
           createElement('span', { className: css.sessionMeta },
             `${s.statistics.files} 个文件 · +${s.statistics.additions} -${s.statistics.deletions} · ${timeOf(s.createdAt)}`),
         ),

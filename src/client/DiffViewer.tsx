@@ -14,6 +14,7 @@ import { createElement, useEffect, useMemo, useState, type ReactElement } from '
 import type { WireChange } from './index.ts'
 import type { SideBySideRow } from '../services/DiffService.ts'
 import { countDiff } from '../services/DiffService.ts'
+import { statusMeta } from './statusMeta.ts'
 import css from './DiffViewer.module.css'
 import baseCss from './styles.module.css'
 
@@ -44,6 +45,7 @@ export function DiffViewer(props: DiffViewerProps): ReactElement {
   const { change, mode, onModeChange, onSaved, disabled = false } = props
   const rows: SideBySideRow[] = useMemo(() => alignRows(change.before, change.after), [change.before, change.after])
   const counts = useMemo(() => countDiff(change.before, change.after), [change.before, change.after])
+  const meta = statusMeta(change.status)
 
   // Fallback local copy for callers that do not control the draft.
   const [localDraft, setLocalDraft] = useState(change.after ?? '')
@@ -85,11 +87,19 @@ export function DiffViewer(props: DiffViewerProps): ReactElement {
     createElement('div', { className: css.toolbar },
       createElement('div', { className: css.fileBlock },
         createElement('span', { className: css.fileTitle, title: change.path }, change.path.split('/').pop()),
+        // 3.0.9:脏状态弱视觉 —— 文件名旁一个小圆点,不打扰。
+        dirty ? createElement('span', { className: css.dirtyDot, title: '未保存的修改' }, '●') : null,
         // P-1:文件头 +N -M 一目了然。
         createElement('span', { className: css.fileCounts },
           counts.additions > 0 ? createElement('span', { className: css.countAdd }, `+${counts.additions}`) : null,
           counts.deletions > 0 ? createElement('span', { className: css.countDel }, `-${counts.deletions}`) : null,
         ),
+        // 3.0.8:状态徽标(actionsFor/状态模型驱动,UI 不自判)。
+        createElement('span', {
+          className: css.statusBadge,
+          title: meta.label,
+          'data-weight': meta.weight,
+        }, `${meta.icon} ${meta.label}`),
       ),
       createElement('div', { className: css.modeTabs },
         modeTab('统一', mode === 'unified', () => onModeChange('unified')),
@@ -108,11 +118,10 @@ export function DiffViewer(props: DiffViewerProps): ReactElement {
           spellCheck: false,
         }),
         createElement('div', { className: css.editorActions },
+          // 3.0.9:弱视觉 —— 脏状态由文件名旁的小圆点表达,这里只保留动作。
           justSaved
             ? createElement('span', { className: css.savedHint }, '✓ 已保存')
-            : dirty
-              ? createElement('span', { className: css.dirtyHint }, '✎ 已修改')
-              : null,
+            : null,
           dirty
             ? createElement('button', { onClick: discard, disabled, className: baseCss.buttonGhost }, '放弃')
             : null,

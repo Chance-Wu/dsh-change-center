@@ -13,7 +13,7 @@
 
 import { createElement, useMemo, useState, type ReactElement } from 'react'
 import type { WireChange } from './index.ts'
-import { actionsFor } from './changeActions.ts'
+import { actionsFor, type ChangeActions } from './changeActions.ts'
 import { statusMeta } from './statusMeta.ts'
 import { countDiff } from '../services/DiffService.ts'
 import { OPERATION_MARK } from './i18n.ts'
@@ -32,10 +32,15 @@ export interface ChangeTreeProps {
   onRollback?: (id: string) => void
   /** Quick re-pend from a tree row (rejected/rolled_back). */
   onRepend?: (id: string) => void
+  /** Quick apply from a tree row (pending/approved) — 3.x 树行主操作。 */
+  onApply?: (id: string) => void
   /** Panel lock (bulk op in flight / result showing): hide quick actions. */
   disabled?: boolean
   /** S-6:策略 deny 的变更 id 集合 → 行尾 ⛔ 徽标。 */
   deniedIds?: ReadonlySet<string>
+  /** 3.x:展开「···」的行(显示其余操作)。 */
+  expandedRows?: ReadonlySet<string>
+  onToggleMore?: (id: string) => void
 }
 
 /** Display mode: extension groups (`*.ext`) or the directory tree. */
@@ -180,6 +185,25 @@ function Chevron(props: { collapsed: boolean }): ReactElement {
   }))
 }
 
+/** 3.x:每行唯一主操作(应用优先,其余收进「···」)。 */
+function primaryAction(actions: ChangeActions): 'apply' | 'retry-apply' | 'rollback' | 'repend' | 'reject' | 'approve' | null {
+  if (actions.canApply) return 'apply'
+  if (actions.canRetryApply) return 'retry-apply'
+  if (actions.canRollback) return 'rollback'
+  if (actions.canRepend) return 'repend'
+  if (actions.canReject) return 'reject'
+  if (actions.canApprove) return 'approve'
+  return null
+}
+
+/** 3.x:主操作之外的其余操作(经「···」展开)。 */
+function remainingActions(actions: ChangeActions): ('approve' | 'reject')[] {
+  const out: ('approve' | 'reject')[] = []
+  if (actions.canApprove) out.push('approve')
+  if (actions.canReject) out.push('reject')
+  return out
+}
+
 /** One file row: mark + relative path + counts + hover quick actions. */
 function renderFileRow(
   change: WireChange,
@@ -203,6 +227,43 @@ function renderFileRow(
     }, meta.icon)
   // S-6:策略 deny 的变更显示 ⛔(优先级高于状态字形)。
   const denied = props.deniedIds?.has(change.id) ?? false
+  // 3.x:主操作 + 「···」展开其余;只保留合法操作(由 actionsFor 决定)。
+  const primary = primaryAction(actions)
+  const remaining = remainingActions(actions)
+  const moreExpanded = props.expandedRows?.has(change.id) ?? false
+
+  const stop = (handler: () => void) => (event: MouseEvent) => { event.stopPropagation(); handler() }
+  const primaryButton = primary !== null
+    ? createElement('button', {
+      className: primary === 'reject' ? css.actionReject : css.actionApprove,
+      onClick: stop(() => {
+        if (primary === 'apply' || primary === 'retry-apply') props.onApply?.(change.id)
+        else if (primary === 'rollback') props.onRollback?.(change.id)
+        else if (primary === 'repend') props.onRepend?.(change.id)
+        else if (primary === 'reject') props.onReject?.(change.id)
+        else if (primary === 'approve') props.onApprove?.(change.id)
+      }),
+    }, primary === 'retry-apply' ? '重试' : primary === 'apply' ? '应用' : primary === 'approve' ? '接受' : primary)
+    : null
+
+  const moreButton = showActions && remaining.length > 0
+    ? createElement('button', {
+      className: css.actionMore,
+      onClick: stop(() => props.onToggleMore?.(change.id)),
+      title: moreExpanded ? '收起其他操作' : '其他操作',
+    }, moreExpanded ? '···' : '···')
+    : null
+  const extraButtons = moreExpanded
+    ? remaining.map(kind => createElement('button', {
+      key: kind,
+      className: kind === 'reject' ? css.actionReject : css.actionApprove,
+      onClick: stop(() => {
+        if (kind === 'approve') props.onApprove?.(change.id)
+        else props.onReject?.(change.id)
+      }),
+    }, kind === 'approve' ? '接受' : '拒绝'))
+    : []
+
   return createElement('button', {
     key: change.id,
     className: css.fileRow,
@@ -221,20 +282,11 @@ function renderFileRow(
   denied
     ? createElement('span', { className: css.statusDenied, title: '被策略拒绝' }, '⛔')
     : statusGlyph,
-  showActions && (actions.canApprove || actions.canReject || actions.canRollback || actions.canRepend)
+  showActions && primary !== null
     ? createElement('span', { className: css.rowActions, onClick: (event: MouseEvent) => event.stopPropagation() },
-      actions.canApprove && props.onApprove !== undefined
-        ? createElement('button', { className: css.actionApprove, onClick: () => props.onApprove?.(change.id) }, '接受')
-        : null,
-      actions.canReject && props.onReject !== undefined
-        ? createElement('button', { className: css.actionReject, onClick: () => props.onReject?.(change.id) }, '拒绝')
-        : null,
-      actions.canRollback && props.onRollback !== undefined
-        ? createElement('button', { className: css.actionApprove, onClick: () => props.onRollback?.(change.id) }, '回滚')
-        : null,
-      actions.canRepend && props.onRepend !== undefined
-        ? createElement('button', { className: css.actionApprove, onClick: () => props.onRepend?.(change.id) }, '重新处理')
-        : null,
+      primaryButton,
+      moreButton,
+      ...extraButtons,
     )
     : null,
   )
@@ -283,6 +335,20 @@ export function ChangeTree(props: ChangeTreeProps): ReactElement {
   const groups = useMemo(() => groupByExtension(props.changes), [props.changes])
   const root = useMemo(() => buildTree(props.changes), [props.changes])
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set())
+  // 3.x:展开「···」的行(显示其余操作)。
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(() => new Set())
+  const rowProps: ChangeTreeProps = {
+    ...props,
+    expandedRows,
+    onToggleMore: (id) => {
+      setExpandedRows(prev => {
+        const next = new Set(prev)
+        if (next.has(id)) next.delete(id)
+        else next.add(id)
+        return next
+      })
+    },
+  }
 
   const toggle = (path: string): void => {
     setCollapsed(prev => {
@@ -321,14 +387,14 @@ export function ChangeTree(props: ChangeTreeProps): ReactElement {
             createElement('span', { className: css.groupStats },
               `${group.changes.length} 个 · +${group.additions} -${group.deletions}`),
           ),
-          group.changes.map(change => renderFileRow(change, props, 0)),
+          group.changes.map(change => renderFileRow(change, rowProps, 0)),
         ))
         : createElement('div', { className: css.dirArea },
           createElement('div', { className: css.dirToolbar },
             createElement('button', { className: css.modeBtn, onClick: () => setAllCollapsed(true) }, '全部折叠'),
             createElement('button', { className: css.modeBtn, onClick: () => setAllCollapsed(false) }, '全部展开'),
           ),
-          renderNode(root, 0, props, collapsed, toggle),
+          renderNode(root, 0, rowProps, collapsed, toggle),
         ),
   )
 }

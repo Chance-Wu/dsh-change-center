@@ -278,7 +278,7 @@
   min-width: 0;
 }
 
-/* 文件行 hover 快捷操作（仅 pending） */
+/* 文件行 hover 快捷操作(3.x:主操作 + 「···」展开其余) */
 .rowActions {
   flex: none;
   margin-left: 6px;
@@ -288,6 +288,21 @@
 
 .fileRow:hover .rowActions {
   display: inline-flex;
+}
+
+/* 3.x:「···」—— 折叠的次要操作 */
+.actionMore {
+  border: 1px solid var(--dsw-alias-border-l2);
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: var(--dsw-font-xxxs-11);
+  font-family: inherit;
+  padding: 1px 5px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.actionMore:hover {
+  color: var(--dsw-alias-label-primary);
 }
 
 .actionApprove {

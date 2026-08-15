@@ -38,18 +38,27 @@ function statusClass(status: string): string {
 export function ReviewBar(props: ReviewBarProps): ReactElement {
   const { change, api, onAction, onError, disabled = false } = props
   const [conflict, setConflict] = useState<ActionResult | null>(null)
+  // 3.3:策略 deny 是真正的 Guard —— 给「仍然应用(force)」路径。
+  const [deny, setDeny] = useState<{ message: string } | null>(null)
   const [busy, setBusy] = useState(false)
 
   const run = async (action: () => Promise<unknown>, allowConflict = false): Promise<void> => {
     setBusy(true)
     setConflict(null)
+    setDeny(null)
     try {
       const result = (await action()) as ActionResult
+      const message = (result as { message?: string }).message ?? ''
       if (result.kind === 'conflict' || (result as { error?: string }).error === 'external modification detected') {
         setConflict(result)
+      } else if (result.kind === 'error' && message.startsWith('policy deny')) {
+        // 3.3:策略拦截 —— 变更保持 pending,提供「仍然应用」。
+        setDeny({ message })
+      } else if (result.kind === 'missing-snapshot') {
+        onError('回滚失败：快照不存在（文件保持当前状态）')
       } else if (result.kind === 'error') {
         // 结构化错误(如非法转移):显式提示,不静默。
-        onError((result as { message?: string }).message ?? '操作失败')
+        onError(message || '操作失败')
       } else {
         onAction()
       }
@@ -136,6 +145,24 @@ export function ReviewBar(props: ReviewBarProps): ReactElement {
             onClick: () => run(() => api.applyChange(change.id, true)),
             className: baseCss.buttonPrimary,
           }, '强制应用'),
+        ),
+      )
+      : null,
+    // 3.3:策略 deny —— 「仍然应用(force)」需用户明确选择。
+    deny !== null
+      ? createElement('div', { className: css.conflict },
+        createElement('div', { className: css.conflictTitle }, '⛔ 此变更被策略阻止'),
+        createElement('div', { className: css.conflictDesc },
+          deny.message.replace(/^policy deny:\s*/, '')),
+        createElement('div', { className: css.conflictActions },
+          createElement('button', {
+            onClick: () => setDeny(null),
+            className: baseCss.buttonGhost,
+          }, '关闭'),
+          createElement('button', {
+            onClick: () => run(() => api.applyChange(change.id, true)),
+            className: baseCss.buttonPrimary,
+          }, '仍然应用'),
         ),
       )
       : null,

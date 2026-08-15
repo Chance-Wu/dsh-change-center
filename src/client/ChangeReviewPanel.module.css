@@ -132,6 +132,25 @@
   50% { opacity: 0.45; }
 }
 
+/* 3.x Focus 状态卡:风险文字行 + 状态行 + 主操作 */
+.focusRisk {
+  font-size: var(--dsw-font-xxs-12);
+  font-weight: 600;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.focusStatus {
+  font-size: var(--dsw-font-xxs-12);
+  color: var(--dsw-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.focusActions {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+
 /* ── 批量操作条 + Issues 过滤（V-4 / V-11） ───────────────────────── */
 .actionBar {
   display: flex;

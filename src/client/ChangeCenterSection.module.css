@@ -256,6 +256,15 @@
   white-space: nowrap;
 }
 
+/* 3.x:会话行内一句话摘要 */
+.sessionSummary {
+  font-size: var(--dsw-font-xxxs-11);
+  color: var(--dsw-alias-label-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .sessionMeta {
   font-size: var(--dsw-font-xxxs-11);
   color: var(--dsw-alias-label-tertiary);
