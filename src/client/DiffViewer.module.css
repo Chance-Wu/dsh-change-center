@@ -1,9 +1,11 @@
-/* DiffViewer：行块式 diff + 工具条，只引用设计 token。 */
+/* DiffViewer：行块式 diff + 工具条，只引用设计 token。
+   代码字体统一用 --dsw-font-family-mono(带 monospace 兜底),Harness 不提供
+   --ds-* 前缀变量,之前 var(--ds-font-family-code) 未定义导致代码字体失效。 */
 .viewer {
   border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 12px;
   background: var(--dsw-alias-bg-layer-2);
-  padding: 10px 12px;
+  padding: 12px 14px 14px;
   min-width: 0;
 }
 
@@ -11,7 +13,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 8px;
+  margin-bottom: 10px;
   gap: 8px;
 }
 
@@ -38,6 +40,9 @@
   font-size: var(--dsw-font-xxxs-11);
   font-variant-numeric: tabular-nums;
   flex: none;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-layer-3);
 }
 
 .countAdd {
@@ -52,7 +57,7 @@
 
 /* diff 内容区(P-2:静态内联样式入 css) */
 .content {
-  margin-top: 8px;
+  margin-top: 10px;
 }
 
 /* 3.0.9:脏状态弱视觉 —— 文件名旁小圆点 */
@@ -72,7 +77,7 @@
   border-radius: 8px;
   white-space: nowrap;
 }
-/* 语义配色按状态:applied=绿、failed=红、approved/pending=蓝/黄、其余弱化 */
+/* 语义配色按状态:applied=绿、failed=红、pending=黄、rolled_back=弱化 */
 .statusBadge[data-status='applied'] {
   color: var(--dsw-alias-state-success-primary);
   background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 12%, transparent);
@@ -81,15 +86,10 @@
   color: var(--dsw-alias-state-error-primary);
   background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, transparent);
 }
-.statusBadge[data-status='approved'] {
-  color: var(--dsw-alias-state-business-primary);
-  background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 12%, transparent);
-}
 .statusBadge[data-status='pending'] {
   color: var(--dsw-alias-state-warn-primary);
   background: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 12%, transparent);
 }
-.statusBadge[data-status='rejected'],
 .statusBadge[data-status='rolled_back'] {
   color: var(--dsw-alias-label-tertiary);
   background: var(--dsw-alias-bg-layer-3);
@@ -100,7 +100,7 @@
   max-height: 380px;
   animation: diffExpand 160ms cubic-bezier(0.4, 0, 0.2, 1);
   overflow: auto;
-  font-family: var(--ds-font-family-code);
+  font-family: var(--dsw-font-family-mono, monospace);
   font-size: var(--dsw-font-xxxs-11);
   line-height: 17px;
   white-space: pre;
@@ -113,6 +113,11 @@
 .diffRow {
   display: flex;
   align-items: baseline;
+  padding: 0 10px;
+  transition: background 80ms ease;
+}
+.diffRow:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
 }
 .diffRowAdded {
   composes: diffRow;
@@ -128,13 +133,13 @@
 /* 行号 gutter */
 .lineNo {
   flex: none;
-  width: 42px;
-  padding-right: 10px;
+  width: 40px;
+  padding-right: 8px;
   text-align: right;
   color: var(--dsw-alias-label-tertiary);
   font-variant-numeric: tabular-nums;
   user-select: none;
-  opacity: 0.75;
+  opacity: 0.7;
 }
 .lineText {
   min-width: 0;
@@ -157,11 +162,15 @@
 .hunkLine {
   display: flex;
   align-items: baseline;
-  padding: 0 8px;
-  font-family: var(--ds-font-family-code);
+  padding: 0 10px;
+  font-family: var(--dsw-font-family-mono, monospace);
   font-size: var(--dsw-font-xxxs-11);
   line-height: 17px;
   white-space: pre;
+  transition: background 80ms ease;
+}
+.hunkLine:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
 }
 
 .diffNoChange {
@@ -178,9 +187,13 @@
 }
 .sideRow {
   display: flex;
-  font-family: var(--ds-font-family-code);
+  font-family: var(--dsw-font-family-mono, monospace);
   font-size: var(--dsw-font-xxxs-11);
   line-height: 17px;
+  transition: background 80ms ease;
+}
+.sideRow:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
 }
 .sideHeader {
   display: flex;
@@ -255,20 +268,24 @@
   border-radius: 8px;
   overflow: hidden;
 }
+.editorWrap:focus-within {
+  border-color: var(--dsw-alias-state-business-primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--dsw-alias-state-business-primary) 20%, transparent);
+}
 .editorGutter {
   flex: none;
-  width: 48px;
+  width: 44px;
   box-sizing: border-box;
   padding: 8px 8px 8px 8px;
   text-align: right;
   background: var(--dsw-alias-bg-layer-3);
   color: var(--dsw-alias-label-tertiary);
-  font-family: var(--ds-font-family-code);
+  font-family: var(--dsw-font-family-mono, monospace);
   font-size: var(--dsw-font-xxs-12);
   line-height: 18px;
   font-variant-numeric: tabular-nums;
   user-select: none;
-  opacity: 0.75;
+  opacity: 0.7;
   overflow: hidden;
 }
 .editorGutterLine {
@@ -279,7 +296,7 @@
   min-width: 0;
   min-height: 280px;
   box-sizing: border-box;
-  font-family: var(--ds-font-family-code);
+  font-family: var(--dsw-font-family-mono, monospace);
   font-size: var(--dsw-font-xxs-12);
   line-height: 18px;
   white-space: pre;
@@ -293,8 +310,6 @@
 }
 .editorTextarea:focus {
   outline: none;
-  border-color: var(--dsw-alias-state-business-primary);
-  box-shadow: 0 0 0 1px var(--dsw-alias-state-business-primary);
 }
 .editorActions {
   margin-top: 6px;
@@ -554,7 +569,7 @@
 /* 流式块:无框;块之间用空行分隔;激活块左侧强调条 + 底色(带过渡) */
 .hunkFlow {
   position: relative;
-  margin-bottom: 18px;
+  margin-bottom: 14px;
   transition: box-shadow 0.15s ease, background-color 0.15s ease;
 }
 
@@ -572,8 +587,8 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  margin: 4px 10px 6px;
-  min-height: 24px;
+  margin: 2px 10px 5px;
+  min-height: 22px;
 }
 
 .hunkBarActive {
