@@ -597,12 +597,67 @@
   background: var(--dsw-alias-border-l1);
 }
 
-/* 块内操作按钮:常显(块数量通常不多),点击即有反馈,不依赖焦点/悬浮。 */
+/* 块内操作:图标按钮 —— 无文字、平时安静,hover 时变色 + 说明浮层 */
 .hunkBarActions {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 2px;
   flex: none;
+}
+
+.iconTipHost {
+  display: inline-flex;
+}
+
+.hunkIconBtn {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+  transition: color 0.12s, background 0.12s;
+}
+
+.hunkIconBtn:hover:not(:disabled) {
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-bg-layer-3);
+}
+
+.hunkIconBtn:disabled {
+  opacity: 0.35;
+  cursor: default;
+  pointer-events: none;
+}
+
+/* 语义 hover:应用=成功绿、撤销=警告色(平时保持中性,不干扰)。 */
+.hunkIconApply:hover:not(:disabled) {
+  color: var(--dsw-alias-state-success-primary);
+}
+
+.hunkIconRevert:hover:not(:disabled) {
+  color: var(--dsw-alias-state-warn-primary);
+}
+
+/* hover 说明浮层:fixed 定位(脱离 hunkScroll 滚动容器裁剪),跟随按钮显示。 */
+.hunkTip {
+  position: fixed;
+  z-index: 1000;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-layer-3);
+  border: 1px solid var(--dsw-alias-border-l1);
+  box-shadow: var(--dsw-shadow-lv1);
+  color: var(--dsw-alias-label-primary);
+  font-size: var(--dsw-font-xxxs-11);
+  line-height: 1.5;
+  white-space: nowrap;
+  pointer-events: none;
 }
 
 /* 块内编辑区:Qoder 风格 —— 直接改该块内容 */

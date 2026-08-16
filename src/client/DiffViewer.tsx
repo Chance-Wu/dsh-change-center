@@ -523,7 +523,7 @@ function HunkedView(props: {
         // 点击任意块 = 设为当前块(滚动定位到容器顶部)。
         onClick: () => scrollTo(hunk.index),
       },
-      // 块操作栏融入 diff:行号区间 + 已应用/已撤销 + 操作按钮(取代浮动面板)。
+      // 块操作栏融入 diff:行号区间 + 已应用/已撤销 + 图标操作(取代浮动面板)。
       createElement('div', {
         className: isActive ? `${css.hunkBar} ${css.hunkBarActive}` : css.hunkBar,
       },
@@ -534,12 +534,12 @@ function HunkedView(props: {
         isApplied ? '已应用' : '已撤销'),
       createElement('div', { className: css.hunkBarActions },
         isApplied && !isEditing && onEditHunk !== undefined
-          ? createElement('button', { className: baseCss.buttonMini, onClick: stop(() => startEdit(hunk.index)) }, '编辑')
+          ? createElement(TipButton, { tip: '编辑该块', onClick: stop(() => startEdit(hunk.index)) }, ICON_EDIT)
           : null,
         !isEditing
           ? (isApplied
-            ? createElement('button', { className: baseCss.buttonMini, onClick: stop(() => runOp(hunk.index, () => onHunk(hunk.index, true))) }, '撤销该块')
-            : createElement('button', { className: baseCss.buttonMini, onClick: stop(() => runOp(hunk.index, () => onHunk(hunk.index, false))) }, '应用该块'))
+            ? createElement(TipButton, { tip: '撤销该块', className: css.hunkIconRevert, onClick: stop(() => runOp(hunk.index, () => onHunk(hunk.index, true))) }, ICON_UNDO)
+            : createElement(TipButton, { tip: '应用该块', className: css.hunkIconApply, onClick: stop(() => runOp(hunk.index, () => onHunk(hunk.index, false))) }, ICON_CHECK))
           : null,
       ),
       ),
@@ -565,6 +565,71 @@ function HunkedView(props: {
           : unifiedHunkBody(hunk, isApplied, displayLines, afterStarts[hunk.index]),
       )
     }),
+  )
+}
+
+/** 16 viewBox stroke 图标(lucide 风格路径;与项目 chevron 同风格)。 */
+function Icon(props: { d: string[]; size?: number }): ReactElement {
+  return createElement('svg', {
+    viewBox: '0 0 24 24',
+    width: props.size ?? 14,
+    height: props.size ?? 14,
+    fill: 'none',
+    stroke: 'currentColor',
+    strokeWidth: 2,
+    strokeLinecap: 'round',
+    strokeLinejoin: 'round',
+    'aria-hidden': true,
+  }, props.d.map(d => createElement('path', { key: d, d })))
+}
+
+/** 编辑(铅笔)。 */
+const ICON_EDIT: ReactElement = createElement(Icon, { d: ['M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z', 'm15 5 4 4'] })
+/** 撤销该块(回退箭头)。 */
+const ICON_UNDO: ReactElement = createElement(Icon, { d: ['M3 7v6h6', 'M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13'] })
+/** 应用该块(对勾)。 */
+const ICON_CHECK: ReactElement = createElement(Icon, { d: ['M20 6 9 17l-5-5'] })
+
+/**
+ * 图标操作按钮 + hover 说明浮层。不用 `title`(延迟且不可控);说明用 fixed
+ * 定位气泡(脱离 hunkScroll 滚动容器的裁剪),hover/聚焦时跟随按钮位置显示。
+ */
+function TipButton(props: {
+  tip: string
+  onClick: (event: { stopPropagation: () => void }) => void
+  className?: string
+  children?: ReactElement
+}): ReactElement {
+  const { tip, onClick, className, children } = props
+  const [tipPos, setTipPos] = useState<{ x: number; y: number; below: boolean } | null>(null)
+  const ref = useRef<HTMLButtonElement | null>(null)
+  const show = (): void => {
+    const el = ref.current
+    if (el === null) return
+    const rect = el.getBoundingClientRect()
+    // 视口顶部空间不足(首块)时改在按钮下方显示,避免浮层被视口裁掉。
+    const below = rect.top < 44
+    setTipPos({ x: rect.left + rect.width / 2, y: below ? rect.bottom + 6 : rect.top - 6, below })
+  }
+  const hide = (): void => setTipPos(null)
+  return createElement('div', { className: css.iconTipHost },
+    createElement('button', {
+      ref,
+      type: 'button',
+      className: className ?? css.hunkIconBtn,
+      onClick,
+      onMouseEnter: show,
+      onMouseLeave: hide,
+      onFocus: show,
+      onBlur: hide,
+      'aria-label': tip,
+    }, children),
+    tipPos !== null
+      ? createElement('div', {
+        className: css.hunkTip,
+        style: { left: tipPos.x, top: tipPos.y, transform: `translate(-50%, ${tipPos.below ? '0' : '-100%'})` },
+      }, tip)
+      : null,
   )
 }
 
