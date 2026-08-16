@@ -245,6 +245,17 @@
   color: color-mix(in srgb, var(--dsw-alias-state-success-primary) 72%, var(--dsw-alias-label-primary));
 }
 
+/* 并排模式的 hunk 块体(每块双栏 before|after,带操作面板) */
+.hunkSide {
+  border-top: 1px solid var(--dsw-alias-border-l1);
+}
+.sideRowContext {
+  background: var(--dsw-alias-bg-layer-2);
+}
+.sideColContextText {
+  color: var(--dsw-alias-label-tertiary);
+}
+
 /* 编辑器模式:行号 gutter + 文本框(边框/圆角移到 wrapper) */
 .editorArea {
   margin-top: 8px;

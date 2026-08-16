@@ -174,9 +174,12 @@ export function DiffViewer(props: DiffViewerProps): ReactElement {
           )
           : mode === 'unified'
             ? (hunks.length > 0 && props.onHunk !== undefined && !readOnly
-              ? createElement(HunkedView, { change, hunks, applied, edits: hunkEdits, onHunk: props.onHunk, onEditHunk: props.onEditHunk })
+              ? createElement(HunkedView, { hunks, applied, edits: hunkEdits, onHunk: props.onHunk, onEditHunk: props.onEditHunk, layout: 'unified' })
               : createElement(UnifiedView, { change, findings: explanation?.findings ?? [] }))
-            : mode === 'side-by-side' ? createElement(SideBySideView, { rows })
+            : mode === 'side-by-side'
+              ? (hunks.length > 0 && props.onHunk !== undefined && !readOnly
+                ? createElement(HunkedView, { hunks, applied, edits: hunkEdits, onHunk: props.onHunk, onEditHunk: props.onEditHunk, layout: 'side-by-side' })
+                : createElement(SideBySideView, { rows }))
               : createElement('div', { className: css.editorArea },
         createElement('div', { className: css.editorWrap },
           // 行号 gutter:与文本框同步滚动(等宽字体 + 相同行高对齐)。
@@ -385,15 +388,17 @@ function unifiedLineNumbers(lines: string[]): { before: (number | null)[]; after
 
 
 /** Qoder 风格:hunk 分组的 diff 视图 —— 块内编辑、应用/撤销、操作完自动跳下一块、↑/↓ 自由跳转。 */
+/** Qoder 风格:hunk 分组的操作视图 —— 块内编辑、应用/撤销、操作后自动跳下一块、↑/↓ 自由跳转。
+ *  `layout='unified'` 单栏 -/+ 行;`layout='side-by-side'` 双栏 before|after(并排模式同样有操作面板)。 */
 function HunkedView(props: {
-  change: WireChange
   hunks: DiffHunk[]
   applied: boolean[]
   edits: (string[] | null)[]
   onHunk: (index: number, revert: boolean) => Promise<boolean> | void
   onEditHunk?: (index: number, lines: string[]) => Promise<boolean> | void
+  layout: 'unified' | 'side-by-side'
 }): ReactElement {
-  const { hunks, applied, edits, onHunk, onEditHunk } = props
+  const { hunks, applied, edits, onHunk, onEditHunk, layout } = props
   const [active, setActive] = useState(0)
   const [editing, setEditing] = useState<number | null>(null)
   const [draft, setDraft] = useState('')
@@ -526,27 +531,60 @@ function HunkedView(props: {
             createElement('button', { className: baseCss.buttonGhost, onClick: () => setEditing(null) }, '放弃'),
           ),
         )
-        : createElement('div', null,
-          // 行内容:已应用块显示 -/+;已撤销块显示当前磁盘内容(该区域为 before,灰)。
-          // 行号:删除行 = before 行号;插入行 = after 行号(afterStart 累加前面块的净增量)。
-          hunk.beforeLines.map((line, i) => createElement('div', {
-            key: `b-${i}`,
-            className: isApplied ? `${css.hunkLine} ${css.diffLineRemoved}` : `${css.hunkLine} ${css.diffLineContext}`,
-          },
-          createElement('span', { className: css.lineNo }, String(hunk.beforeStart + i)),
-          createElement('span', null, `${isApplied ? '-' : ' '}${line}`))),
-          isApplied
-            ? displayLines.map((line, i) => createElement('div', {
-              key: `a-${i}`,
-              className: `${css.hunkLine} ${css.diffLineAdded}`,
-            },
-            createElement('span', { className: css.lineNo }, String(afterStarts[hunk.index] + i)),
-            createElement('span', null, `+${line}`)))
-            : null,
-        ),
+        : layout === 'side-by-side'
+          ? sideHunkBody(hunk, isApplied, displayLines, afterStarts[hunk.index])
+          : unifiedHunkBody(hunk, isApplied, displayLines, afterStarts[hunk.index]),
       )
     }),
   )
+}
+
+/** 单栏块体(统一模式):- 删除行(before 行号)+ 插入行(after 行号);已撤销 = before 灰行。 */
+function unifiedHunkBody(hunk: DiffHunk, isApplied: boolean, displayLines: string[], afterStart: number): ReactElement {
+  return createElement('div', null,
+    hunk.beforeLines.map((line, i) => createElement('div', {
+      key: `b-${i}`,
+      className: isApplied ? `${css.hunkLine} ${css.diffLineRemoved}` : `${css.hunkLine} ${css.diffLineContext}`,
+    },
+    createElement('span', { className: css.lineNo }, String(hunk.beforeStart + i)),
+    createElement('span', null, `${isApplied ? '-' : ' '}${line}`))),
+    isApplied
+      ? displayLines.map((line, i) => createElement('div', {
+        key: `a-${i}`,
+        className: `${css.hunkLine} ${css.diffLineAdded}`,
+      },
+      createElement('span', { className: css.lineNo }, String(afterStart + i)),
+      createElement('span', null, `+${line}`)))
+      : null,
+  )
+}
+
+/** 双栏块体(并排模式):左 = before(删除红 / 已撤销灰),右 = after(插入绿),行号齐全。 */
+function sideHunkBody(hunk: DiffHunk, isApplied: boolean, displayLines: string[], afterStart: number): ReactElement {
+  const rows = isApplied ? Math.max(hunk.beforeLines.length, displayLines.length) : hunk.beforeLines.length
+  const out: ReactElement[] = []
+  for (let i = 0; i < rows; i++) {
+    const beforeLine = i < hunk.beforeLines.length ? hunk.beforeLines[i] : null
+    const afterLine = isApplied && i < displayLines.length ? displayLines[i] : null
+    out.push(createElement('div', {
+      key: i,
+      className: [
+        css.sideRow,
+        beforeLine !== null ? (isApplied ? css.sideRowDeletion : css.sideRowContext) : null,
+        afterLine !== null ? css.sideRowInsertion : null,
+      ].filter(Boolean).join(' '),
+    },
+    createElement('div', { className: css.sideCol },
+      createElement('span', { className: css.lineNo }, beforeLine !== null ? String(hunk.beforeStart + i) : ''),
+      beforeLine !== null ? createElement('span', { className: isApplied ? css.sideColDelText : css.sideColContextText }, beforeLine) : null,
+    ),
+    createElement('div', { className: css.sideCol },
+      createElement('span', { className: css.lineNo }, afterLine !== null ? String(afterStart + i) : ''),
+      afterLine !== null ? createElement('span', { className: css.sideColInsText }, afterLine) : null,
+    ),
+    ))
+  }
+  return createElement('div', { className: css.hunkSide }, ...out)
 }
 
 /** Unified diff: one line per annotated diff row, with inline finding annotations. */
