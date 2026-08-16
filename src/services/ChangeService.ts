@@ -535,7 +535,10 @@ export class ChangeService extends Service {
    * Changes are processed newest-first with one change per path: superseded
    * writes to the same file (the review surface shows only the latest) are
    * reported as `superseded` so a bulk apply never re-writes an older
-   * intermediate state, and the result counters stay disjoint.
+   * intermediate state, and the result counters stay disjoint. These
+   * superseded old writes are then REMOVED from the store (Phase C) — they
+   * are obsolete (rollback/apply always operate on the newest record) and
+   * otherwise pile up as forever-pending.
    *
    * Policy gating: when the policy engine is mounted, a pending change hit by
    * a `deny` policy is NOT applied — it stays pending and lands in `blocked`
@@ -604,6 +607,12 @@ export class ChangeService extends Service {
         result.failed.push({ id: change.id, message })
       }
     }
+    // Phase C — Cleanup:被同一路径新写入覆盖的旧记录已无意义
+    // (回滚/应用都以最新一条为准),从存储移除,避免永久堆积 pending。
+    for (const id of result.superseded) {
+      this.changes.delete(id)
+    }
+    if (result.superseded.length > 0) this.persist()
     return result
   }
 

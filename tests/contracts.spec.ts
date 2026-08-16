@@ -271,6 +271,11 @@ describe('D. Batch 契约', () => {
     expect(result.superseded).toContain(c1)
     expect(result.blocked.some(b => b.id === c3)).toBe(true)
     expect(result.skipped).toContain(c4)
+    // Phase C:被覆盖的旧写入 c1 从存储移除(不再堆积 pending),其余保留。
+    expect(ctx.changeCenter.get(c1)).toBeUndefined()
+    expect(ctx.changeCenter.get(c2)?.status).toBe('applied')
+    expect(ctx.changeCenter.get(c3)?.status).toBe('pending')
+    expect(ctx.changeCenter.get(c4)?.status).toBe('applied')
   })
 })
 
