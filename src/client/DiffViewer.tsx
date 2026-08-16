@@ -415,47 +415,61 @@ function HunkedView(props: {
     if (active >= hunks.length) setActive(Math.max(0, hunks.length - 1))
   }, [hunks.length, active])
 
-  /** 操作面板顶部在容器内的占位:sticky top 8px + 面板 margin-top 6px。 */
-  const PANEL_OFFSET = 14
+  /** 面板顶部位置(容器内绝对定位):贴在激活块开始行,钳制在容器内。 */
+  const [panelTop, setPanelTop] = useState(8)
 
   /** 操作面板高度(测量)。 */
   const panelHeight = (): number => panelRef.current?.offsetHeight ?? 38
 
-  /** 面板占用的纵向空间(顶部偏移 + 高度)——块定位到面板正下方的基准。 */
-  const panelSpace = (): number => PANEL_OFFSET + (panelRef.current?.offsetHeight ?? 38)
+  /** 面板移到激活块开始行的右上侧(随滚动跟随,不越界)。 */
+  const updatePanelPosition = (index: number): void => {
+    const container = scrollRef.current
+    const el = refs.current[index]
+    if (container === null || el === null || el === undefined) return
+    const containerRect = container.getBoundingClientRect()
+    const elRect = el.getBoundingClientRect()
+    const raw = elRect.top - containerRect.top
+    const maxTop = Math.max(8, container.clientHeight - panelHeight() - 8)
+    setPanelTop(Math.min(Math.max(raw, 8), maxTop))
+  }
 
-  /** 滚动容器内把某块定位到操作面板正下方,并设为当前块。 */
+  // 激活块变化(点击/↑↓/自动跳块)时面板跟随。
+  useEffect(() => {
+    updatePanelPosition(active)
+  }, [active, hunks.length])
+
+  /** 滚动容器内把某块定位到容器顶部(面板会跟随到该块开始行),并设为当前块。 */
   const scrollTo = (index: number): void => {
     if (index < 0 || index >= hunks.length) return
     setActive(index)
     const container = scrollRef.current
     const el = refs.current[index]
     if (container !== null && el !== null) {
-      // 先把容器带进视野(仅当容器部分不可见时滚动页面),再在容器内对齐到面板下方。
+      // 先把容器带进视野(仅当容器部分不可见时滚动页面),再在容器内对齐到顶部。
       container.scrollIntoView({ block: 'nearest' })
-      container.scrollTop = Math.max(0, el.offsetTop - panelSpace())
+      container.scrollTop = Math.max(0, el.offsetTop - 8)
     }
   }
   const next = (): void => scrollTo(active + 1)
   const prev = (): void => scrollTo(active - 1)
 
-  /** 跟随滑动:自动激活「面板正下方」的块;滚动到底部时选中最后一块。 */
+  /** 跟随滑动:自动激活容器顶部处的块;滚动到底部时选中最后一块;面板贴其开始行。 */
   const onScroll = (): void => {
     const container = scrollRef.current
     if (container === null) return
-    const space = panelSpace()
     const scrollable = container.scrollHeight > container.clientHeight + 2
     const atBottom = scrollable && container.scrollTop + container.clientHeight >= container.scrollHeight - 2
     let best = 0
     for (let i = 0; i < hunks.length; i++) {
       const el = refs.current[i]
       if (el === null) continue
-      if (el.offsetTop - container.scrollTop <= space + 8) best = i
+      if (el.offsetTop - container.scrollTop <= 8) best = i
       else break
     }
-    // 底部特例:最后一小块可能顶边在面板下方,永远轮不到它被选中。
+    // 底部特例:最后一小块可能顶边在参考线下方,永远轮不到它被选中。
     if (atBottom) best = hunks.length - 1
     if (best !== active) setActive(best)
+    updatePanelPosition(best)
   }
 
   // 操作成功后自动跳到下一个块;失败停留在当前块。
@@ -498,14 +512,14 @@ function HunkedView(props: {
     return () => window.removeEventListener('keydown', onKey)
   })
 
-  // 操作面板:sticky 于滚动区顶部 —— 跟随滑动始终可见,操作当前块;
-  // 滚动时 onScroll 自动激活面板下方的块,面板内容随之更新。
+  // 操作面板:绝对定位,贴在激活块开始行的右上侧,随滑动跟随(updatePanelPosition)。
   const renderOpPanel = (index: number): ReactElement => {
     const isApplied = applied[index] ?? true
     const isEditing = editing === index
     return createElement('div', {
       className: css.hunkOpPanel,
       ref: panelRef,
+      style: { top: panelTop },
       onClick: (event: { stopPropagation: () => void }) => event.stopPropagation(),
     },
     createElement('span', { className: css.hunkOpTitle }, `${index + 1}/${hunks.length}`),

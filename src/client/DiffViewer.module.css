@@ -528,19 +528,18 @@
   background: var(--dsw-alias-bg-layer-1);
 }
 
-/* 操作面板:右侧液态工具栏 —— 胶囊造型 + 品牌色渐变 + 弹性动效;
-   sticky 于滚动区顶部始终可见;滚动时自动跟踪面板下方的块。 */
+/* 操作面板:右侧液态工具栏 —— 绝对定位,贴在激活块开始行的右上侧,
+   随滑动跟随(top 由 JS 按块的实时位置计算并钳制)。 */
 .hunkOpPanel {
-  align-self: flex-end;
-  position: sticky;
-  top: 8px;
+  position: absolute;
+  right: 8px;
   z-index: 5;
   display: flex;
   align-items: center;
   gap: 8px;
   width: fit-content;
   max-width: calc(100% - 16px);
-  margin: 6px 8px 8px;
+  margin: 0;
   padding: 4px 8px;
   border: 1px solid color-mix(in srgb, var(--dsw-alias-brand-primary) 22%, var(--dsw-alias-border-l2));
   border-radius: 999px;
