@@ -10,7 +10,7 @@
  * @module dsh-change-center/client
  */
 
-import { createElement, useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
+import { createElement, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import type { WireChange, WireFinding, WireReview } from './index.ts'
 import type { SideBySideRow, DiffHunk } from '../services/DiffService.ts'
 import { countDiff, diffHunks, sideBySideRows } from '../services/DiffService.ts'
@@ -433,22 +433,25 @@ function HunkedView(props: {
     setPanelTop(Math.min(Math.max(raw, 8), maxTop))
   }
 
-  // 激活块变化(点击/↑↓/自动跳块)时面板跟随。
-  useEffect(() => {
+  // 激活块变化(点击/↑↓/自动跳块)时面板跟随;用 layout effect 保证绘制前定位,不闪跳。
+  useLayoutEffect(() => {
     updatePanelPosition(active)
   }, [active, hunks.length])
 
-  /** 滚动容器内把某块定位到容器顶部(面板会跟随到该块开始行),并设为当前块。 */
+  /** 滚动容器内把某块定位到容器顶部,并设为当前块;面板随后贴其开始行右上侧。 */
   const scrollTo = (index: number): void => {
     if (index < 0 || index >= hunks.length) return
     setActive(index)
     const container = scrollRef.current
     const el = refs.current[index]
-    if (container !== null && el !== null) {
-      // 先把容器带进视野(仅当容器部分不可见时滚动页面),再在容器内对齐到顶部。
-      container.scrollIntoView({ block: 'nearest' })
-      container.scrollTop = Math.max(0, el.offsetTop - 8)
-    }
+    if (container === null || el === null || el === undefined) return
+    // 1) 容器内部滚动到块顶。
+    container.scrollTop = Math.max(0, el.offsetTop - 8)
+    // 2) 把容器(其顶部即面板与块开始行的位置)带进页面视野。
+    container.scrollIntoView({ block: 'nearest' })
+    // 3) 立即重算 + 下一帧兜底(scrollIntoView 可能刚改变了滚动位置)。
+    updatePanelPosition(index)
+    requestAnimationFrame(() => updatePanelPosition(index))
   }
   const next = (): void => scrollTo(active + 1)
   const prev = (): void => scrollTo(active - 1)
