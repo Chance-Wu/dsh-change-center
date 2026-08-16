@@ -567,8 +567,7 @@
   background: color-mix(in srgb, var(--dsw-alias-brand-primary) 7%, transparent);
 }
 
-/* 块操作栏:行号区间 + 状态 + 操作按钮直接融入 diff(取代浮动面板)。
-   按钮 hover 时出现,平时只显示行号区间与状态,不遮挡代码。 */
+/* 块操作栏:状态胶囊在左,操作图标推到行最末(中间细线分隔)。 */
 .hunkBar {
   display: flex;
   align-items: center;
@@ -582,23 +581,22 @@
   background: color-mix(in srgb, var(--dsw-alias-brand-primary) 10%, transparent);
 }
 
-.hunkRange {
-  font-size: var(--dsw-font-xxxs-11);
-  font-variant-numeric: tabular-nums;
-  color: var(--dsw-alias-label-tertiary);
-  white-space: nowrap;
-  flex: none;
+.hunkBar > .hunkAppliedTag,
+.hunkBar > .hunkRevertedTag {
+  order: 0;
 }
 
 .hunkBar::after {
   content: '';
+  order: 1;
   flex: 1;
   height: 1px;
   background: var(--dsw-alias-border-l1);
 }
 
-/* 块内操作:图标按钮 —— 无文字、平时安静,hover 时变色 + 说明浮层 */
+/* 操作图标:行末(order 最大)。 */
 .hunkBarActions {
+  order: 2;
   display: inline-flex;
   align-items: center;
   gap: 2px;

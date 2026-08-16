@@ -523,13 +523,10 @@ function HunkedView(props: {
         // 点击任意块 = 设为当前块(滚动定位到容器顶部)。
         onClick: () => scrollTo(hunk.index),
       },
-      // 块操作栏融入 diff:行号区间 + 已应用/已撤销 + 图标操作(取代浮动面板)。
+      // 块操作栏融入 diff:已应用/已撤销 + 行末图标操作(取代浮动面板)。
       createElement('div', {
         className: isActive ? `${css.hunkBar} ${css.hunkBarActive}` : css.hunkBar,
       },
-      createElement('span', { className: css.hunkRange },
-        `-${hunk.beforeStart}${hunk.beforeLines.length > 1 ? `,${hunk.beforeLines.length}` : ''} ` +
-        `+${afterStarts[hunk.index]}${displayLines.length > 1 ? `,${displayLines.length}` : ''}`),
       createElement('span', { className: isApplied ? css.hunkAppliedTag : css.hunkRevertedTag },
         isApplied ? '已应用' : '已撤销'),
       createElement('div', { className: css.hunkBarActions },
