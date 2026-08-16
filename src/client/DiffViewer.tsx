@@ -10,7 +10,7 @@
  * @module dsh-change-center/client
  */
 
-import { createElement, useEffect, useMemo, useState, type ReactElement } from 'react'
+import { createElement, useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import type { WireChange, WireFinding, WireReview } from './index.ts'
 import type { SideBySideRow, DiffHunk } from '../services/DiffService.ts'
 import { countDiff, diffHunks, sideBySideRows } from '../services/DiffService.ts'
@@ -26,8 +26,10 @@ export interface DiffViewerProps {
   mode: DiffMode
   onModeChange: (mode: DiffMode) => void
   onSaved: (after: string) => void
-  /** Qoder 风格块级操作:应用/撤销 diff 中单个 hunk。 */
-  onHunk?: (index: number, revert: boolean) => void
+  /** Qoder 风格块级操作:应用/撤销 diff 中单个 hunk。返回 true 表示成功。 */
+  onHunk?: (index: number, revert: boolean) => Promise<boolean> | void
+  /** Qoder 风格块内编辑:用 `lines` 替换某个 hunk 的写入内容。返回 true 表示成功。 */
+  onEditHunk?: (index: number, lines: string[]) => Promise<boolean> | void
   /** Panel lock (bulk op in flight / result showing): disable saving edits. */
   disabled?: boolean
   /**
@@ -63,6 +65,7 @@ export function DiffViewer(props: DiffViewerProps): ReactElement {
   // Qoder 风格 hunk 块:分割 + 应用状态(缺省=全部已应用,文件已是 after)。
   const hunks: DiffHunk[] = useMemo(() => diffHunks(change.before, change.after), [change.before, change.after])
   const applied = change.hunkApplied ?? hunks.map(() => true)
+  const hunkEdits = change.hunkEdits ?? []
 
   // Fallback local copy for callers that do not control the draft.
   const [localDraft, setLocalDraft] = useState(change.after ?? '')
@@ -166,7 +169,7 @@ export function DiffViewer(props: DiffViewerProps): ReactElement {
           : mode === 'focus' ? createElement(FocusView, { change, review: props.review ?? null, explanation })
           : mode === 'unified'
             ? (hunks.length > 0 && props.onHunk !== undefined && !readOnly
-              ? createElement(HunkedView, { change, hunks, applied, onHunk: props.onHunk })
+              ? createElement(HunkedView, { change, hunks, applied, edits: hunkEdits, onHunk: props.onHunk, onEditHunk: props.onEditHunk })
               : createElement(UnifiedView, { change, findings: explanation?.findings ?? [] }))
             : mode === 'side-by-side' ? createElement(SideBySideView, { rows })
               : createElement('div', { className: css.editorArea },
@@ -394,44 +397,149 @@ function unifiedLineNumbers(lines: string[]): { before: (number | null)[]; after
 }
 
 
-/** Qoder 风格:hunk 分组的 diff 视图,每块带「应用该块 / 撤销该块」。 */
+/** Qoder 风格:hunk 分组的 diff 视图 —— 块内编辑、应用/撤销、操作完自动跳下一块、↑/↓ 自由跳转。 */
 function HunkedView(props: {
   change: WireChange
   hunks: DiffHunk[]
   applied: boolean[]
-  onHunk: (index: number, revert: boolean) => void
+  edits: (string[] | null)[]
+  onHunk: (index: number, revert: boolean) => Promise<boolean> | void
+  onEditHunk?: (index: number, lines: string[]) => Promise<boolean> | void
 }): ReactElement {
-  const { hunks, applied, onHunk } = props
+  const { hunks, applied, edits, onHunk, onEditHunk } = props
+  const [active, setActive] = useState(0)
+  const [editing, setEditing] = useState<number | null>(null)
+  const [draft, setDraft] = useState('')
+  const refs = useRef<(HTMLDivElement | null)[]>([])
+
+  // hunk 数变化(全文编辑后)时收敛激活块。
+  useEffect(() => {
+    if (active >= hunks.length) setActive(Math.max(0, hunks.length - 1))
+  }, [hunks.length, active])
+
+  const scrollTo = (index: number): void => {
+    if (index < 0 || index >= hunks.length) return
+    setActive(index)
+    refs.current[index]?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }
+  const next = (): void => scrollTo(active + 1)
+  const prev = (): void => scrollTo(active - 1)
+
+  // 操作成功后自动跳到下一个块;失败停留在当前块。
+  const finish = (ok: boolean, index: number): void => {
+    setEditing(null)
+    if (ok && index + 1 < hunks.length) scrollTo(index + 1)
+  }
+  const runOp = (index: number, op: () => Promise<boolean> | void): void => {
+    const result = op()
+    if (result !== undefined && typeof (result as Promise<boolean>).then === 'function') {
+      ;(result as Promise<boolean>).then(ok => finish(ok !== false, index))
+    } else {
+      finish(true, index)
+    }
+  }
+
+  const startEdit = (index: number): void => {
+    const current = edits[index] ?? hunks[index]?.afterLines ?? []
+    setEditing(index)
+    setDraft(current.join('\n'))
+  }
+  const saveEdit = (index: number): void => {
+    if (onEditHunk === undefined) return
+    const lines = draft.split('\n')
+    if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop()
+    runOp(index, () => onEditHunk(index, lines))
+  }
+
+  // 全页监听 ↑/↓:不在输入框内时自由跳转(操作完自动跳块之外的可选导航)。
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const onKey = (event: KeyboardEvent): void => {
+      const target = event.target as HTMLElement | null
+      if (target !== null && (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT' || target.isContentEditable)) return
+      if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
+      if (event.key === 'ArrowDown') { event.preventDefault(); next() }
+      else if (event.key === 'ArrowUp') { event.preventDefault(); prev() }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
+
   return createElement('div', { className: css.hunkList },
     hunks.map(hunk => {
       const isApplied = applied[hunk.index] ?? true
+      const isActive = active === hunk.index
+      const isEditing = editing === hunk.index
+      // 显示行:块内编辑后取编辑内容,否则取原始 after。
+      const displayLines = edits[hunk.index] ?? hunk.afterLines
       return createElement('div', {
         key: hunk.index,
-        className: isApplied ? css.hunk : `${css.hunk} ${css.hunkReverted}`,
+        ref: (el: HTMLDivElement | null): void => { refs.current[hunk.index] = el },
+        className: [
+          isApplied ? css.hunk : `${css.hunk} ${css.hunkReverted}`,
+          isActive ? css.hunkActive : null,
+        ].filter(Boolean).join(' '),
       },
       createElement('div', { className: css.hunkHeader },
-        createElement('span', { className: css.hunkTitle }, `块 ${hunk.index + 1} · -${hunk.deletions} +${hunk.additions}`),
+        createElement('span', { className: css.hunkTitle }, `块 ${hunk.index + 1} · -${hunk.beforeLines.length} +${displayLines.length}`),
         createElement('span', { className: isApplied ? css.hunkAppliedTag : css.hunkRevertedTag },
           isApplied ? '已应用' : '已撤销'),
         createElement('div', { className: css.hunkActions },
+          // 块内编辑:仅已应用块可编辑(编辑即应用该块)。
+          isApplied && !isEditing && onEditHunk !== undefined
+            ? createElement('button', { className: baseCss.buttonMini, onClick: () => startEdit(hunk.index) }, '编辑')
+            : null,
           isApplied
-            ? createElement('button', { className: baseCss.buttonMini, onClick: () => onHunk(hunk.index, true) }, '撤销该块')
-            : createElement('button', { className: baseCss.buttonMini, onClick: () => onHunk(hunk.index, false) }, '应用该块'),
+            ? createElement('button', { className: baseCss.buttonMini, onClick: () => runOp(hunk.index, () => onHunk(hunk.index, true)) }, '撤销该块')
+            : createElement('button', { className: baseCss.buttonMini, onClick: () => runOp(hunk.index, () => onHunk(hunk.index, false)) }, '应用该块'),
         ),
       ),
-      // 行内容:已应用块显示 -/+;已撤销块显示当前磁盘内容(该区域为 before,灰)。
-      hunk.beforeLines.map((line, i) => createElement('div', {
-        key: `b-${i}`,
-        className: isApplied ? css.diffLineRemoved : css.diffLineContext,
-        style: { display: 'block', padding: '0 8px' },
-      }, `${isApplied ? '-' : ' '}${line}`)),
-      isApplied
-        ? hunk.afterLines.map((line, i) => createElement('div', {
-          key: `a-${i}`,
-          className: css.diffLineAdded,
-          style: { display: 'block', padding: '0 8px' },
-        }, `+${line}`))
-        : null,
+      createElement('div', { className: css.hunkNav },
+        createElement('button', {
+          className: css.hunkNavBtn,
+          disabled: hunk.index === 0,
+          onClick: () => scrollTo(hunk.index - 1),
+          title: '上一个块 (↑)',
+        }, '↑'),
+        createElement('button', {
+          className: css.hunkNavBtn,
+          disabled: hunk.index === hunks.length - 1,
+          onClick: () => scrollTo(hunk.index + 1),
+          title: '下一个块 (↓)',
+        }, '↓'),
+      ),
+      isEditing
+        ? createElement('div', { className: css.hunkEditArea },
+          createElement('textarea', {
+            className: css.hunkTextarea,
+            value: draft,
+            autoFocus: true,
+            spellCheck: false,
+            onChange: (event: { target: { value: string } }) => setDraft(event.target.value),
+            onKeyDown: (event: { key: string; stopPropagation: () => void }) => {
+              if (event.key === 'Escape') { setEditing(null); event.stopPropagation() }
+            },
+          }),
+          createElement('div', { className: css.hunkEditActions },
+            createElement('button', { className: baseCss.buttonPrimary, onClick: () => saveEdit(hunk.index) }, '保存该块'),
+            createElement('button', { className: baseCss.buttonGhost, onClick: () => setEditing(null) }, '放弃'),
+          ),
+        )
+        : createElement('div', null,
+          // 行内容:已应用块显示 -/+;已撤销块显示当前磁盘内容(该区域为 before,灰)。
+          hunk.beforeLines.map((line, i) => createElement('div', {
+            key: `b-${i}`,
+            className: isApplied ? css.diffLineRemoved : css.diffLineContext,
+            style: { display: 'block', padding: '0 8px' },
+          }, `${isApplied ? '-' : ' '}${line}`)),
+          isApplied
+            ? displayLines.map((line, i) => createElement('div', {
+              key: `a-${i}`,
+              className: css.diffLineAdded,
+              style: { display: 'block', padding: '0 8px' },
+            }, `+${line}`))
+            : null,
+        ),
       )
     }),
   )

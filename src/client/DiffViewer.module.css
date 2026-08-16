@@ -510,6 +510,7 @@
 }
 
 .hunk {
+  position: relative;
   border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 8px;
   overflow: hidden;
@@ -548,4 +549,78 @@
   margin-left: auto;
   display: inline-flex;
   gap: 4px;
+}
+
+/* 激活块:跳转目标高亮 */
+.hunkActive {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: 0;
+}
+
+/* 上/下箭头:自由跳转相邻块 */
+.hunkNav {
+  position: absolute;
+  right: 8px;
+  top: 34px;
+  display: inline-flex;
+  gap: 2px;
+}
+
+.hunkNavBtn {
+  width: 20px;
+  height: 20px;
+  line-height: 1;
+  padding: 0;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 4px;
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-secondary);
+  font-size: var(--dsw-font-xxs-12);
+  cursor: pointer;
+}
+
+.hunkNavBtn:hover:not(:disabled) {
+  border-color: var(--dsw-alias-brand-primary);
+  color: var(--dsw-alias-brand-primary);
+}
+
+.hunkNavBtn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+/* 块内编辑区:Qoder 风格 —— 直接改该块内容 */
+.hunkEditArea {
+  padding: 8px;
+  border-top: 1px solid var(--dsw-alias-border-l1);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.hunkTextarea {
+  width: 100%;
+  min-height: 72px;
+  box-sizing: border-box;
+  resize: vertical;
+  padding: 6px 8px;
+  font-family: var(--dsw-font-family-mono, monospace);
+  font-size: var(--dsw-font-xs-13);
+  line-height: 1.55;
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-bg-layer-1);
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 6px;
+  outline: none;
+}
+
+.hunkTextarea:focus {
+  border-color: var(--dsw-alias-brand-primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--dsw-alias-brand-primary) 25%, transparent);
+}
+
+.hunkEditActions {
+  display: inline-flex;
+  gap: 6px;
+  justify-content: flex-end;
 }

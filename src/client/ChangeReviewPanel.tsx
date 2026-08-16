@@ -416,21 +416,50 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
       .catch(err => setError(err instanceof Error ? err.message : String(err)))
   }
 
-  /** 块级操作:应用/撤销 diff 中的单个 hunk,其余块保持不变。 */
-  const applyHunk = (index: number, revert: boolean): void => {
-    if (change === null) return
-    api.applyHunk(change.id, index, revert)
+  /** 块级操作:应用/撤销 diff 中的单个 hunk,其余块保持不变。成功返回 true。 */
+  const applyHunk = (index: number, revert: boolean): Promise<boolean> => {
+    if (change === null) return Promise.resolve(false)
+    return api.applyHunk(change.id, index, revert)
       .then((result: ActionResult) => {
         afterAction()
         if ((result as { kind?: string }).kind === 'conflict') {
           setToast({ text: '该块操作冲突:磁盘内容与捕获版本不一致', kind: 'warn' })
-        } else if ((result as { kind?: string }).kind === 'error') {
-          setToast({ text: `! 块操作失败:${(result as { message?: string }).message ?? '未知错误'}`, kind: 'error' })
-        } else {
-          setToast({ text: revert ? '✓ 已撤销该块' : '✓ 已应用该块', kind: 'ok' })
+          return false
         }
+        if ((result as { kind?: string }).kind === 'error') {
+          setToast({ text: `! 块操作失败:${(result as { message?: string }).message ?? '未知错误'}`, kind: 'error' })
+          return false
+        }
+        setToast({ text: revert ? '✓ 已撤销该块' : '✓ 已应用该块', kind: 'ok' })
+        return true
       })
-      .catch(err => setError(err instanceof Error ? err.message : String(err)))
+      .catch((err: unknown) => {
+        setError(err instanceof Error ? err.message : String(err))
+        return false
+      })
+  }
+
+  /** 块内编辑:用修改后的行替换某个 hunk 的写入内容(编辑即应用)。成功返回 true。 */
+  const editHunk = (index: number, lines: string[]): Promise<boolean> => {
+    if (change === null) return Promise.resolve(false)
+    return api.editHunk(change.id, index, lines)
+      .then((result: ActionResult) => {
+        afterAction()
+        if ((result as { kind?: string }).kind === 'conflict') {
+          setToast({ text: '该块保存冲突:磁盘内容与捕获版本不一致', kind: 'warn' })
+          return false
+        }
+        if ((result as { kind?: string }).kind === 'error') {
+          setToast({ text: `! 块保存失败:${(result as { message?: string }).message ?? '未知错误'}`, kind: 'error' })
+          return false
+        }
+        setToast({ text: '✓ 已保存并应用该块', kind: 'ok' })
+        return true
+      })
+      .catch((err: unknown) => {
+        setError(err instanceof Error ? err.message : String(err))
+        return false
+      })
   }
 
   // ── V-4 批量操作 ────────────────────────────────────────────────
@@ -890,6 +919,7 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
               // 只读面:不提供编辑与 AI 审查运行。
               readOnly,
               onHunk: readOnly ? undefined : applyHunk,
+              onEditHunk: readOnly ? undefined : editHunk,
               review,
               changes: fileChanges,
               onSelectChange: (id) => { setSelectedChange(id); setDiffMode('focus') },

@@ -18,6 +18,7 @@ import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import type { FileChange, ChangeOperation, ChangeStatus, ChangeSource, ChangeKind } from '../models/FileChange.ts'
 import { CHANGE_TRANSITIONS as TRANSITIONS } from '../models/ChangeState.ts'
 import { applyHunks, diffHunks, renderUnified } from './DiffService.ts'
+import type { DiffHunk } from './DiffService.ts'
 import { JsonlStore, maxIdSuffix } from './JsonlStore.ts'
 import type { ApplyService, ApplyResult } from './ApplyService.ts'
 import { sha256 } from './ApplyService.ts'
@@ -276,6 +277,15 @@ export class ChangeService extends Service {
       return { kind: 'error', message }
     }
     try {
+      // Qoder 块状态:文件变更存在逐块撤销/编辑时,「应用」写回重构后的内容
+      // (全部块应用 + 保留块内编辑),而不是原始 after —— 否则会覆盖用户
+      // 在 diff 里做的块级修改。写盘路径与 applyHunk/editHunk 完全一致。
+      if (change.hunkApplied !== undefined || change.hunkEdits !== undefined) {
+        const hunks = diffHunks(change.before, change.after)
+        const appliedAll = hunks.map(() => true)
+        const content = applyHunks(change.before, hunks, appliedAll, change.hunkEdits)
+        return this.writeHunk(change, hunks, appliedAll, change.hunkEdits ?? [], content, force)
+      }
       await snapshots.snapshot(change)
       const result = await applyEngine.apply(change, force)
       if (result.kind === 'applied') {
@@ -303,9 +313,10 @@ export class ChangeService extends Service {
    * Qoder 风格块级操作:应用或撤销 diff 中的单个 hunk,并把结果写回工作区。
    *
    * 捕获发生在工具写盘之后,文件初始 = after ⇒ 每个 hunk 默认已应用
-   * (`hunkApplied` 缺省 = 全 true)。「撤销该块」把该区域恢复为 before 内容,
-   * 「应用该块」重新写回 after 内容;其余块保持不变(逐块接受语义)。
-   * 写入带 diskBaseline 外部修改守卫(与 apply 一致,force 绕过)。
+   * (`hunkApplied` 缺省 = 全 true)。「撤销该块」把该区域恢复为 before 内容
+   * (同时丢弃该块已有的编辑),「应用该块」重新写回 after 内容;其余块保持
+   * 不变(逐块接受语义)。写入带 diskBaseline 外部修改守卫(与 apply 一致,
+   * force 绕过)。
    *
    * @param id - change id。
    * @param index - hunk 序号(与 `diffHunks(before, after)` 顺序一致)。
@@ -324,14 +335,65 @@ export class ChangeService extends Service {
     if (index < 0 || index >= hunks.length) {
       return { kind: 'error', message: `hunk index ${index} out of range (${hunks.length} hunks)` }
     }
+    const applied = change.hunkApplied ?? hunks.map(() => true)
+    applied[index] = !revert
+    // 撤销某块 = 丢弃该块的编辑(再应用时回到原始 after 内容)。
+    const edits = change.hunkEdits !== undefined ? [...change.hunkEdits] : []
+    if (revert) edits[index] = null
+    const content = applyHunks(change.before, hunks, applied, edits)
+    return this.writeHunk(change, hunks, applied, edits, content, force)
+  }
+
+  /**
+   * Qoder 风格块内编辑:用用户修改后的行替换某个 hunk 的写入内容,并写回工作区。
+   * 编辑即应用(该块 applied=true),其余块保持原有状态;编辑后磁盘基线更新为
+   * 新内容,后续 apply/apply-all 不会用原始 after 覆盖掉用户的修改。
+   *
+   * @param id - change id。
+   * @param index - hunk 序号。
+   * @param lines - 该块修改后的完整写入行(不含行尾分隔符)。
+   * @param force - 绕过外部修改守卫。
+   */
+  async editHunk(id: string, index: number, lines: string[], force = false): Promise<ApplyResult> {
+    const change = this.changes.get(id)
+    if (change === undefined) {
+      return { kind: 'error', message: `unknown change "${id}"` }
+    }
+    if (change.kind !== 'file' || change.before === null || change.after === null) {
+      return { kind: 'error', message: 'hunk operations require a file change with before/after content' }
+    }
+    if (!Array.isArray(lines) || !lines.every(line => typeof line === 'string')) {
+      return { kind: 'error', message: 'hunk edit requires an array of string lines' }
+    }
+    const hunks = diffHunks(change.before, change.after)
+    if (index < 0 || index >= hunks.length) {
+      return { kind: 'error', message: `hunk index ${index} out of range (${hunks.length} hunks)` }
+    }
+    const applied = change.hunkApplied ?? hunks.map(() => true)
+    applied[index] = true
+    const edits = change.hunkEdits !== undefined ? [...change.hunkEdits] : []
+    edits[index] = lines
+    const content = applyHunks(change.before, hunks, applied, edits)
+    return this.writeHunk(change, hunks, applied, edits, content, force)
+  }
+
+  /**
+   * Shared write path for hunk ops: diskBaseline guard → snapshot → atomic
+   * write → bookkeeping (hunk state + baseline + applied transition + emit).
+   */
+  private async writeHunk(
+    change: FileChange,
+    hunks: DiffHunk[],
+    applied: boolean[],
+    edits: (string[] | null)[],
+    content: string,
+    force: boolean,
+  ): Promise<ApplyResult> {
     const fs = this.ctx.get('fs')
     const snapshots: SnapshotService | undefined = this.ctx.get('snapshots')
     if (fs === undefined || snapshots === undefined) {
       return { kind: 'error', message: 'apply engine unavailable (fs/snapshots not mounted)' }
     }
-    const applied = change.hunkApplied ?? hunks.map(() => true)
-    applied[index] = !revert
-    const content = applyHunks(change.before, hunks, applied)
     try {
       const target = await fs.resolve(change.path, {
         cwd: change.cwd.length > 0 ? change.cwd : undefined,
@@ -350,9 +412,10 @@ export class ChangeService extends Service {
       await snapshots.snapshot(change)
       await fs.writeText(target, content, undefined, undefined, workspaceWritePolicy(change.cwd))
       change.hunkApplied = applied
+      change.hunkEdits = edits
       change.diskBaseline = content
       if (change.status !== 'applied') {
-        this.transition(id, 'applied')
+        this.transition(change.id, 'applied')
       }
       this.persist()
       this.ctx.emit('change.updated', change)
@@ -378,6 +441,12 @@ export class ChangeService extends Service {
     if (result.kind === 'rolled-back') {
       // 3.x:回滚后磁盘 = before(创建 → 文件不存在)。
       change.diskBaseline = change.operation === 'create' ? null : change.before
+      // 回滚 = 全部块撤销,并丢弃块内编辑;再「应用」时回到原始 after。
+      if (change.hunkApplied !== undefined || change.hunkEdits !== undefined) {
+        const hunks = change.before !== null && change.after !== null ? diffHunks(change.before, change.after) : []
+        change.hunkApplied = hunks.map(() => false)
+        change.hunkEdits = undefined
+      }
       this.transition(id, 'rolled_back')
       this.ctx.emit('change.updated', change)
     }
@@ -425,6 +494,9 @@ export class ChangeService extends Service {
     change.after = after
     change.diff = renderUnified(change.before, change.after)
     change.status = 'pending'
+    // 全文编辑替换了 after ⇒ hunk 结构整体重算,块级状态作废。
+    change.hunkApplied = undefined
+    change.hunkEdits = undefined
     change.updatedAt = Date.now()
     this.persist()
     return change
@@ -445,6 +517,9 @@ export class ChangeService extends Service {
     }
     change.after = content
     change.diff = renderUnified(change.before, change.after)
+    // 冲突中心写入的是整份新版本 ⇒ hunk 结构重算,块级状态作废。
+    change.hunkApplied = undefined
+    change.hunkEdits = undefined
     change.updatedAt = Date.now()
     this.persist()
     // force:用户已在冲突中心明确选择,不再需要守卫。

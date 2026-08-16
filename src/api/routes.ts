@@ -318,9 +318,16 @@ async function dispatch(
       }
     }
     case 'change-hunk': {
-      const { index, revert, force } = (body ?? {}) as { index?: unknown; revert?: unknown; force?: unknown }
+      const { index, revert, force, lines } = (body ?? {}) as { index?: unknown; revert?: unknown; force?: unknown; lines?: unknown }
       if (typeof index !== 'number' || !Number.isInteger(index) || index < 0) {
         return { error: 'hunk requires a non-negative integer `index` body field' }
+      }
+      // Qoder 块内编辑:携带 `lines`(字符串数组)时走 editHunk,否则 applyHunk。
+      if (lines !== undefined) {
+        if (!Array.isArray(lines) || !lines.every(line => typeof line === 'string')) {
+          return { error: 'hunk edit requires `lines` to be an array of strings' }
+        }
+        return ctx.changeCenter.editHunk(parsed.id, index, lines, force === true)
       }
       return ctx.changeCenter.applyHunk(parsed.id, index, revert === true, force === true)
     }

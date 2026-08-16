@@ -69,6 +69,11 @@ export interface FileChange {
    * 已撤销(文件该区域保持 before 内容)。
    */
   hunkApplied?: boolean[]
+  /**
+   * Qoder 风格块内编辑:各 hunk 被用户修改后的写入行(与 `diffHunks` 顺序一一
+   * 对应);`null`/缺省 = 使用原始 afterLines。撤销某块会丢弃该块的编辑。
+   */
+  hunkEdits?: (string[] | null)[]
   /** Unified-diff text derived from before/after. */
   diff: string
   status: ChangeStatus

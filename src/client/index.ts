@@ -177,6 +177,8 @@ export interface ChangeCenterApi {
   applyChange(id: string, force?: boolean): Promise<ActionResult>
   /** Qoder 风格:应用或撤销 diff 中单个 hunk(revert=true 撤销该块)。 */
   applyHunk(id: string, index: number, revert?: boolean, force?: boolean): Promise<ActionResult>
+  /** Qoder 风格:块内编辑 —— 用 `lines` 替换某个 hunk 的写入内容并写回。 */
+  editHunk(id: string, index: number, lines: string[], force?: boolean): Promise<ActionResult>
   editChange(id: string, after: string): Promise<unknown>
   /** 4.6:读取磁盘当前版本(冲突中心对比用)。 */
   changeCurrent(id: string): Promise<{ exists: boolean; content: string | null }>
@@ -249,6 +251,8 @@ export function apiOf(): ChangeCenterApi {
       postJson(`/api/change-center/changes/${id}/apply${force ? '?force=1' : ''}`).then(body => body as ActionResult),
     applyHunk: (id, index, revert, force) =>
       postJson(`/api/change-center/changes/${id}/hunk`, { index, revert: revert ?? false, force: force ?? false }).then(body => body as ActionResult),
+    editHunk: (id, index, lines, force) =>
+      postJson(`/api/change-center/changes/${id}/hunk`, { index, lines, force: force ?? false }).then(body => body as ActionResult),
     editChange: (id, after) => postJson(`/api/change-center/changes/${id}/edit`, { after }),
     changeCurrent: (id) => getJson(`/api/change-center/changes/${id}/current`).then(body => body as { exists: boolean; content: string | null }),
     resolveChange: (id, content) => postJson(`/api/change-center/changes/${id}/resolve`, { content }).then(body => body as ActionResult),

@@ -235,9 +235,11 @@ export function diffHunks(before: string | null, after: string | null): DiffHunk
 /**
  * Reconstruct the file text from `before` with the given hunks applied
  * (hunk k applied ⇒ its beforeLines are replaced by afterLines; unapplied
- * hunks keep the before content). Preserves `before`'s trailing newline.
+ * hunks keep the before content). `edits` optionally overrides a hunk's
+ * afterLines (Qoder 风格块内编辑:该块写入用户修改后的行,`null` = 原 after)。
+ * Preserves `before`'s trailing newline.
  */
-export function applyHunks(before: string | null, hunks: DiffHunk[], applied: boolean[]): string {
+export function applyHunks(before: string | null, hunks: DiffHunk[], applied: boolean[], edits?: (string[] | null)[]): string {
   const a = splitLines(before)
   let out = a
   let delta = 0
@@ -246,8 +248,9 @@ export function applyHunks(before: string | null, hunks: DiffHunk[], applied: bo
     if (!(applied[hunk.index] ?? false)) continue
     const start = hunk.beforeStart - 1 + delta
     const beforeLen = hunk.beforeLines.length
-    out = [...out.slice(0, start), ...hunk.afterLines, ...out.slice(start + beforeLen)]
-    delta += hunk.afterLines.length - beforeLen
+    const replacement = edits?.[hunk.index] ?? hunk.afterLines
+    out = [...out.slice(0, start), ...replacement, ...out.slice(start + beforeLen)]
+    delta += replacement.length - beforeLen
   }
   const body = out.join('\n')
   return before !== null && before.endsWith('\n') && body.length > 0 ? `${body}\n` : body

@@ -213,6 +213,34 @@ describe('B + C. Apply / Rollback 契约(真实文件系统)', () => {
     const bad = await ctx.changeCenter.applyHunk(id, 9, true)
     expect(bad).toMatchObject({ kind: 'error' })
   })
+
+  it('editHunk:块内编辑写入用户修改后的行,撤销该块丢弃编辑', async () => {
+    const ctx = await fullSetup()
+    const target = join(tempDir, 'hunk-edit.txt')
+    const before = 'a\nb\nc\nd\ne\nf\n'
+    const after = 'A\nb\nc\nD\ne\nf\n'
+    writeFileSync(target, after)
+    const id = recordFile(ctx, 'hunk-edit', target, { before, after })
+    // 编辑 hunk0(行1 a→A):写入用户修改后的两行。
+    const edited = await ctx.changeCenter.editHunk(id, 0, ['a', 'Z'])
+    expect(edited.kind).toBe('applied')
+    expect(readFileSync(target, 'utf8')).toBe('a\nZ\nb\nc\nD\ne\nf\n')
+    expect(ctx.changeCenter.get(id)?.hunkEdits?.[0]).toEqual(['a', 'Z'])
+    expect(ctx.changeCenter.get(id)?.status).toBe('applied')
+    // 撤销 hunk0:该区域恢复 before,且编辑被丢弃。
+    const reverted = await ctx.changeCenter.applyHunk(id, 0, true)
+    expect(reverted.kind).toBe('applied')
+    expect(readFileSync(target, 'utf8')).toBe('a\nb\nc\nD\ne\nf\n')
+    expect(ctx.changeCenter.get(id)?.hunkApplied).toEqual([false, true])
+    expect(ctx.changeCenter.get(id)?.hunkEdits?.[0]).toBeNull()
+    // 重新应用 hunk0:回到原始 after(编辑已丢弃)。
+    const reapplied = await ctx.changeCenter.applyHunk(id, 0, false)
+    expect(reapplied.kind).toBe('applied')
+    expect(readFileSync(target, 'utf8')).toBe(after)
+    // 非法行(非字符串)→ 结构化错误。
+    const bad = await ctx.changeCenter.editHunk(id, 0, ['ok', 42 as unknown as string])
+    expect(bad).toMatchObject({ kind: 'error' })
+  })
 })
 
 describe('D. Batch 契约', () => {

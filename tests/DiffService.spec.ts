@@ -127,4 +127,25 @@ describe('applyHunks (逐块接受重构)', () => {
     const hunks = diffHunks('a\nb\n', 'A\nb\n')
     expect(applyHunks('a\nb\n', hunks, [true])).toBe('A\nb\n')
   })
+
+  it('edits override a hunk afterLines (块内编辑), reverted hunks keep before', () => {
+    const hunks = diffHunks(before, after)
+    // hunk0 改为用户内容 ['a','Z'],hunk1 撤销(保持 before 的 d)。
+    const edits: (string[] | null)[] = [['a', 'Z'], null]
+    expect(applyHunks(before, hunks, [true, false], edits)).toBe('a\nZ\nb\nc\nd\ne\nf\n')
+    // hunk0 编辑 + hunk1 应用:两处都生效。
+    expect(applyHunks(before, hunks, [true, true], edits)).toBe('a\nZ\nb\nc\nD\ne\nf\n')
+  })
+
+  it('edit with added/removed lines shifts later hunks by the delta', () => {
+    const hunks = diffHunks(before, after)
+    // hunk0 编辑后插入 2 行 → hunk1 的写入位置必须顺延,内容不重叠。
+    const edits: (string[] | null)[] = [['a', 'Z', 'y'], null]
+    expect(applyHunks(before, hunks, [true, true], edits)).toBe('a\nZ\ny\nb\nc\nD\ne\nf\n')
+  })
+
+  it('null edit entries fall back to the original afterLines', () => {
+    const hunks = diffHunks(before, after)
+    expect(applyHunks(before, hunks, [true, true], [null, null])).toBe(after)
+  })
 })
