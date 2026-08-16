@@ -557,7 +557,7 @@
   font-size: var(--dsw-font-xxs-12);
 }
 
-/* Qoder 风格 hunk 块视图:滚动容器 + 跟随滑动的操作面板(无框风格) */
+/* Qoder 风格 hunk 块视图:滚动容器 + 跟随当前块的操作面板(无框风格) */
 .hunkScroll {
   position: relative;
   max-height: 60vh;
@@ -567,18 +567,28 @@
   background: var(--dsw-alias-bg-layer-1);
 }
 
-/* 跟随滑动的操作面板:滚动时始终钉在顶部,操作当前块 */
+/* 跟随当前块的操作面板:浮动卡片,随块滑动(不再 sticky 钉在顶部,
+   第一个块也不会像固定页头);块切换时淡入下移。 */
 .hunkOpPanel {
-  position: sticky;
-  top: 0;
-  z-index: 5;
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 6px 10px;
+  margin: 6px 8px 8px;
+  padding: 5px 10px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
   background: var(--dsw-alias-bg-layer-2);
-  border-bottom: 1px solid var(--dsw-alias-border-l1);
   box-shadow: var(--dsw-shadow-lv1);
+  animation: hunkPanelIn 180ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes hunkPanelIn {
+  from { opacity: 0; transform: translateY(-5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hunkOpPanel { animation: none; }
 }
 
 .hunkOpTitle {
@@ -606,13 +616,15 @@
   font-size: var(--dsw-font-xxxs-11);
 }
 
-/* 流式块:无框,分隔线 + 行;激活块左侧强调条 */
+/* 流式块:无框,分隔线 + 行;激活块左侧强调条(带过渡) */
 .hunkFlow {
   position: relative;
+  transition: box-shadow 0.15s ease, background-color 0.15s ease;
 }
 
 .hunkFlowActive {
   box-shadow: inset 3px 0 0 var(--dsw-alias-brand-primary);
+  background: color-mix(in srgb, var(--dsw-alias-brand-primary) 4%, transparent);
 }
 
 /* 块间细分割线:无文字,仅分隔相邻 hunk */
