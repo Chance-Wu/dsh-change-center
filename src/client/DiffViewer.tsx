@@ -79,6 +79,12 @@ export function DiffViewer(props: DiffViewerProps): ReactElement {
     setLocalDraft(next)
   }
   const dirty = draft !== (change.after ?? '')
+  // 编辑器行号:逻辑行 = 换行符分割(尾部空串表示结尾换行)。
+  const draftLines = useMemo(() => {
+    const lines = draft.split('\n')
+    return lines.length > 0 ? lines : ['']
+  }, [draft])
+  const editorGutterRef = useRef<HTMLDivElement | null>(null)
 
   // diff 默认展开:完整代码始终可见,AI 摘要块在上方常显;可手动收起。
   const [diffOpen, setDiffOpen] = useState(true)
@@ -174,12 +180,20 @@ export function DiffViewer(props: DiffViewerProps): ReactElement {
               : createElement(UnifiedView, { change, findings: explanation?.findings ?? [] }))
             : mode === 'side-by-side' ? createElement(SideBySideView, { rows })
               : createElement('div', { className: css.editorArea },
-        createElement('textarea', {
-          value: draft,
-          onChange: (event: { target: { value: string } }) => setDraft(event.target.value),
-          className: css.editorTextarea,
-          spellCheck: false,
-        }),
+        createElement('div', { className: css.editorWrap },
+          // 行号 gutter:与文本框同步滚动(等宽字体 + 相同行高对齐)。
+          createElement('div', { className: css.editorGutter, ref: editorGutterRef },
+            draftLines.map((_, index) => createElement('div', { key: index, className: css.editorGutterLine }, String(index + 1)))),
+          createElement('textarea', {
+            value: draft,
+            onChange: (event: { target: { value: string } }) => setDraft(event.target.value),
+            className: css.editorTextarea,
+            spellCheck: false,
+            onScroll: (event: { target: { scrollTop: number } }) => {
+              if (editorGutterRef.current !== null) editorGutterRef.current.scrollTop = event.target.scrollTop
+            },
+          }),
+        ),
         createElement('div', { className: css.editorActions },
           // 3.0.9:弱视觉 —— 脏状态由文件名旁的小圆点表达,这里只保留动作。
           justSaved
@@ -359,7 +373,12 @@ const OPERATION_MARK: Record<string, string> = { create: 'A', modify: 'M', delet
 /** 5.x Focus Diff:只显示修改块(+/- 行)+ 一句话说明。 */
 function FocusView(props: { change: WireChange; review: WireReview | null; explanation: ChangeExplanation | null }): ReactElement {
   const { change, review, explanation } = props
-  const lines = diffTextLines(change.diff).filter(line => line.startsWith('+') || line.startsWith('-'))
+  const rawLines = diffTextLines(change.diff)
+  // 行号映射:删除行 = before 行号,插入行 = after 行号(与统一视图一致)。
+  const nums = unifiedLineNumbers(rawLines)
+  const lines = rawLines
+    .map((line, index) => ({ line, before: nums.before[index], after: nums.after[index] }))
+    .filter(row => row.line.startsWith('+') || row.line.startsWith('-'))
   const oneLiner = explanation !== null && explanation.reason.length > 0
     ? explanation.reason
     : review !== null && review.summary.length > 0 ? review.summary : ''
@@ -369,13 +388,15 @@ function FocusView(props: { change: WireChange; review: WireReview | null; expla
       : null,
     lines.length > 0
       ? createElement('div', { className: css.diffBody },
-        lines.map((line, index) => {
-          const kind = line.startsWith('+') ? 'added' : 'removed'
-          return createElement('span', {
+        lines.map((row, index) => {
+          const kind = row.line.startsWith('+') ? 'added' : 'removed'
+          return createElement('div', {
             key: index,
-            className: kind === 'added' ? css.diffLineAdded : css.diffLineRemoved,
-            style: { display: 'block', padding: '0 8px' },
-          }, line)
+            className: kind === 'added' ? `${css.diffRow} ${css.diffRowAdded}` : `${css.diffRow} ${css.diffRowRemoved}`,
+          },
+          createElement('span', { className: css.lineNo }, kind === 'added' ? String(row.after ?? '') : String(row.before ?? '')),
+          createElement('span', { className: css.lineText }, row.line),
+          )
         }),
       )
       : createElement('div', { className: css.diffNoChange }, '(无变更)'),
@@ -412,6 +433,18 @@ function HunkedView(props: {
   const [editing, setEditing] = useState<number | null>(null)
   const [draft, setDraft] = useState('')
   const refs = useRef<(HTMLDivElement | null)[]>([])
+
+  // 每个块在 after 文件中的起始行号:beforeStart + 前面所有块的净增量
+  // (afterLines − beforeLines)。插入行号 = afterStart + i,与并排/统一一致。
+  const afterStarts = useMemo(() => {
+    const starts: number[] = []
+    let delta = 0
+    for (const hunk of hunks) {
+      starts.push(hunk.beforeStart + delta)
+      delta += hunk.afterLines.length - hunk.beforeLines.length
+    }
+    return starts
+  }, [hunks])
 
   // hunk 数变化(全文编辑后)时收敛激活块。
   useEffect(() => {
@@ -530,17 +563,20 @@ function HunkedView(props: {
         )
         : createElement('div', null,
           // 行内容:已应用块显示 -/+;已撤销块显示当前磁盘内容(该区域为 before,灰)。
+          // 行号:删除行 = before 行号;插入行 = after 行号(afterStart 累加前面块的净增量)。
           hunk.beforeLines.map((line, i) => createElement('div', {
             key: `b-${i}`,
-            className: isApplied ? css.diffLineRemoved : css.diffLineContext,
-            style: { display: 'block', padding: '0 8px' },
-          }, `${isApplied ? '-' : ' '}${line}`)),
+            className: isApplied ? `${css.hunkLine} ${css.diffLineRemoved}` : `${css.hunkLine} ${css.diffLineContext}`,
+          },
+          createElement('span', { className: css.lineNo }, String(hunk.beforeStart + i)),
+          createElement('span', null, `${isApplied ? '-' : ' '}${line}`))),
           isApplied
             ? displayLines.map((line, i) => createElement('div', {
               key: `a-${i}`,
-              className: css.diffLineAdded,
-              style: { display: 'block', padding: '0 8px' },
-            }, `+${line}`))
+              className: `${css.hunkLine} ${css.diffLineAdded}`,
+            },
+            createElement('span', { className: css.lineNo }, String(afterStarts[hunk.index] + i)),
+            createElement('span', null, `+${line}`)))
             : null,
         ),
       )

@@ -176,6 +176,21 @@
   color: var(--dsw-alias-state-error-primary);
   background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, var(--dsw-alias-bg-layer-1));
 }
+/* 已撤销块中该区域的 before 内容(灰,非变更行)。 */
+.diffLineContext {
+  color: var(--dsw-alias-label-tertiary);
+  background: var(--dsw-alias-bg-layer-2);
+}
+/* hunk 块内一行:行号 gutter + 内容(与统一视图行号对齐)。 */
+.hunkLine {
+  display: flex;
+  align-items: baseline;
+  padding: 0 8px;
+  font-family: var(--ds-font-family-code);
+  font-size: var(--dsw-font-xxxs-11);
+  line-height: 17px;
+  white-space: pre;
+}
 
 .diffNoChange {
   color: var(--dsw-alias-label-tertiary);
@@ -230,19 +245,48 @@
   color: color-mix(in srgb, var(--dsw-alias-state-success-primary) 72%, var(--dsw-alias-label-primary));
 }
 
-/* 编辑器模式 */
+/* 编辑器模式:行号 gutter + 文本框(边框/圆角移到 wrapper) */
 .editorArea {
   margin-top: 8px;
 }
+.editorWrap {
+  display: flex;
+  align-items: stretch;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.editorGutter {
+  flex: none;
+  width: 48px;
+  box-sizing: border-box;
+  padding: 8px 8px 8px 8px;
+  text-align: right;
+  background: var(--dsw-alias-bg-layer-3);
+  color: var(--dsw-alias-label-tertiary);
+  font-family: var(--ds-font-family-code);
+  font-size: var(--dsw-font-xxs-12);
+  line-height: 18px;
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+  opacity: 0.75;
+  overflow: hidden;
+}
+.editorGutterLine {
+  line-height: 18px;
+}
 .editorTextarea {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   min-height: 280px;
   box-sizing: border-box;
   font-family: var(--ds-font-family-code);
   font-size: var(--dsw-font-xxs-12);
   line-height: 18px;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 8px;
+  white-space: pre;
+  overflow: auto;
+  border: none;
+  border-radius: 0;
   background: var(--dsw-alias-bg-layer-1);
   color: var(--dsw-alias-label-primary);
   padding: 8px;
