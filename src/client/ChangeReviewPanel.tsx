@@ -33,6 +33,7 @@ import { DiffViewer } from './DiffViewer.tsx'
 import { ReviewBar } from './ReviewBar.tsx'
 import { IntelligencePanel } from './IntelligencePanel.tsx'
 import { RiskSignal, type SignalLevel } from './RiskSignal.tsx'
+import { Segmented } from './Segmented.tsx'
 import { statusMeta } from './statusMeta.ts'
 import { summarizeChanges } from './summary.ts'
 import baseCss from './styles.module.css'
@@ -829,11 +830,15 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
 
       // V-11 过滤 tabs + 待审徽标(批量操作移到底部 Action Dock)。
       createElement('div', { className: css.actionBar },
-        createElement('div', { className: css.filterTabs },
-          filterTab('all', filter, '全部', () => setFilter('all')),
-          filterTab('pending', filter, '待处理', () => setFilter('pending')),
-          filterTab('issues', filter, `问题${issueIds.size > 0 ? ` ${issueIds.size}` : ''}`, () => setFilter('issues')),
-        ),
+        createElement(Segmented, {
+          segments: [
+            { value: 'all', label: '全部' },
+            { value: 'pending', label: '待处理' },
+            { value: 'issues', label: `问题${issueIds.size > 0 ? ` ${issueIds.size}` : ''}` },
+          ],
+          value: filter,
+          onChange: (next: string) => setFilter(next as ChangeFilter),
+        }),
         pendingCount > 0
           ? createElement('span', { className: css.pendingBadge }, `${pendingCount} 项待确认`)
           : null,
@@ -1015,13 +1020,6 @@ function WarnBlock(props: {
       )
       : null,
   )
-}
-
-function filterTab(value: ChangeFilter, current: ChangeFilter, label: string, onClick: () => void): ReactElement {
-  return createElement('button', {
-    onClick,
-    className: current === value ? css.filterTabActive : css.filterTab,
-  }, label)
 }
 
 /** 4.4 Focus 文件分解行的操作徽标。 */

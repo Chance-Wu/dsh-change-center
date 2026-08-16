@@ -272,37 +272,6 @@
   background: var(--dsw-alias-bg-layer-2);
 }
 
-.filterTabs {
-  display: flex;
-  gap: 2px;
-  background: var(--dsw-alias-bg-layer-3);
-  border-radius: 8px;
-  padding: 2px;
-}
-
-.filterTab {
-  border: none;
-  background: transparent;
-  color: var(--dsw-alias-label-tertiary);
-  font-size: var(--dsw-font-xxs-12);
-  padding: 4px 12px;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: background 120ms ease, color 120ms ease;
-}
-.filterTab:hover {
-  color: var(--dsw-alias-label-primary);
-  background: var(--dsw-alias-interactive-bg-hover);
-}
-.filterTabActive {
-  composes: filterTab;
-  background: var(--dsw-alias-bg-layer-2);
-  color: var(--dsw-alias-label-primary);
-  box-shadow: var(--dsw-shadow-lv1);
-  font-weight: 600;
-}
-
-
 .pendingBadge {
   font-size: var(--dsw-font-xxs-12);
   font-weight: 600;

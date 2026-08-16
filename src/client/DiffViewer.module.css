@@ -95,34 +95,6 @@
   background: var(--dsw-alias-bg-layer-3);
 }
 
-.modeTabs {
-  display: flex;
-  gap: 2px;
-  background: var(--dsw-alias-bg-layer-3);
-  border-radius: 8px;
-  padding: 2px;
-  flex: none;
-}
-
-.modeTab {
-  border: none;
-  background: transparent;
-  color: var(--dsw-alias-label-tertiary);
-  font-size: var(--dsw-font-xxs-12);
-  padding: 3px 10px;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: background 120ms ease, color 120ms ease;
-}
-.modeTab:hover {
-  color: var(--dsw-alias-label-primary);
-}
-.modeTab[data-active='true'] {
-  background: var(--dsw-alias-bg-layer-2);
-  color: var(--dsw-alias-label-primary);
-  box-shadow: var(--dsw-shadow-lv1);
-}
-
 /* 统一 diff：行块式背景色（参考 TrajectoryTable promptDiff） */
 .diffBody {
   max-height: 380px;

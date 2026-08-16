@@ -1,0 +1,52 @@
+/* 液态分段控件:滑动胶囊指示器 */
+.segmented {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  background: var(--dsw-alias-bg-layer-3);
+  border-radius: 8px;
+  padding: 2px;
+}
+
+/* 滑动指示胶囊:absolute + translateX,transform 过渡 → GPU 合成 */
+.indicator {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 0;
+  z-index: 0;
+  background: var(--dsw-alias-bg-layer-2);
+  border-radius: 6px;
+  box-shadow: var(--dsw-shadow-lv1);
+  transition:
+    transform 260ms cubic-bezier(0.34, 1.56, 0.64, 1),
+    width 260ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.segBtn {
+  position: relative;
+  z-index: 1;
+  border: none;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: var(--dsw-font-xxs-12);
+  padding: 4px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 150ms ease;
+}
+
+.segBtn:hover {
+  color: var(--dsw-alias-label-primary);
+}
+
+.segBtn[data-active='true'] {
+  color: var(--dsw-alias-label-primary);
+  font-weight: 600;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .indicator { transition: none; }
+}

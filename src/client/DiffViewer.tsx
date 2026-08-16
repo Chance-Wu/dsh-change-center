@@ -15,6 +15,7 @@ import type { WireChange, WireFinding, WireReview } from './index.ts'
 import type { SideBySideRow, DiffHunk } from '../services/DiffService.ts'
 import { countDiff, diffHunks, sideBySideRows } from '../services/DiffService.ts'
 import { statusMeta } from './statusMeta.ts'
+import { Segmented } from './Segmented.tsx'
 import css from './DiffViewer.module.css'
 import baseCss from './styles.module.css'
 
@@ -138,13 +139,20 @@ export function DiffViewer(props: DiffViewerProps): ReactElement {
           'data-status': change.status,
         }, `${meta.icon} ${meta.label}`),
       ),
-      createElement('div', { className: css.modeTabs },
-        // 有块级操作能力时,「统一」模式承载逐块 编辑/应用/撤销,标签加「块」标记。
-        modeTab(hunks.length > 0 && props.onHunk !== undefined && !readOnly ? '统一·块' : '统一', mode === 'unified', () => onModeChange('unified')),
-        modeTab('并排', mode === 'side-by-side', () => onModeChange('side-by-side')),
-        // 只读面不提供编辑操作。
-        readOnly ? null : modeTab('编辑', mode === 'editor', () => onModeChange('editor')),
-      ),
+      createElement(Segmented, {
+        segments: readOnly
+          ? [
+            { value: 'unified', label: '统一' },
+            { value: 'side-by-side', label: '并排' },
+          ]
+          : [
+            { value: 'unified', label: '统一' },
+            { value: 'side-by-side', label: '并排' },
+            { value: 'editor', label: '编辑' },
+          ],
+        value: mode,
+        onChange: (next: string) => onModeChange(next as DiffMode),
+      }),
     ),
     createElement('div', { className: css.content },
       // 5.x 解释卡:为什么改 / 影响 / 建议 + 相关文件。
@@ -234,14 +242,6 @@ function AISummaryBlock(props: { review: WireReview; change: WireChange }): Reac
 const RISK_ZH: Record<string, string> = { low: '低', medium: '中', high: '高', critical: '严重' }
 const SEVERITY_ZH: Record<string, string> = {
   critical: '严重', error: '错误', warning: '警告', info: '提示',
-}
-
-function modeTab(label: string, active: boolean, onClick: () => void): ReactElement {
-  return createElement('button', {
-    onClick,
-    className: css.modeTab,
-    'data-active': active,
-  }, label)
 }
 
 /** 5.x per-change 解释:从会话级 AI 审查按文件投影(零新增 LLM)。 */
