@@ -514,6 +514,14 @@
   white-space: nowrap;
 }
 
+/* Dock 提示:文件已写入,「全部应用」= 确认 + 检查 */
+.dockHint {
+  font-size: var(--dsw-font-xxxs-11);
+  color: var(--dsw-alias-label-tertiary);
+  opacity: 0.8;
+  white-space: nowrap;
+}
+
 .dockActions {
   display: flex;
   align-items: center;

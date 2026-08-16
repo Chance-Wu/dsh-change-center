@@ -669,6 +669,7 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
               onClick: () => applyAll(false),
               disabled: busy || pendingCount === 0,
               className: baseCss.buttonPrimary,
+              title: '文件已由 agent 写入磁盘;「全部应用」做冲突/策略检查并登记,之后可回滚',
             }, busy ? '处理中…' : pendingCount === 0 ? '✓ 已全部应用' : '全部应用'),
           ),
         ),
@@ -949,6 +950,9 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
       readOnly ? null : createElement('div', { className: css.actionDock },
         createElement('div', { className: css.dockInfo },
           createElement('span', { className: css.dockCount }, `${fileChanges.length} 个变更`),
+          // 提示:文件已写入,「全部应用」= 确认 + 检查(不重复写盘)。
+          createElement('span', { className: css.dockHint, title: 'agent 写盘后即捕获;「全部应用」做冲突/策略检查并登记,之后可回滚' },
+            '文件已写入 · 应用=确认+检查'),
           change !== null
             ? createElement('span', { className: css.dockSelected }, `已选 ${change.path.split('/').pop()}`)
             : null,
@@ -966,6 +970,7 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
             onClick: () => applyAll(false),
             disabled: busy || pendingCount === 0,
             className: baseCss.buttonPrimary,
+            title: '文件已由 agent 写入磁盘;「全部应用」做冲突/策略检查并登记,之后可回滚',
           }, busy ? '处理中…' : '✓ 全部应用'),
         ),
       ),

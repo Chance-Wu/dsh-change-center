@@ -124,6 +124,7 @@ export function ReviewBar(props: ReviewBarProps): ReactElement {
             onClick: () => run(() => api.applyChange(change.id)),
             disabled: inert,
             className: baseCss.buttonPrimary,
+            title: '文件已由 agent 写入磁盘;此操作做冲突/策略检查并登记,之后可回滚',
           }, '应用')
           : null,
         actions.canRetryApply
@@ -131,6 +132,7 @@ export function ReviewBar(props: ReviewBarProps): ReactElement {
             onClick: () => run(() => api.applyChange(change.id)),
             disabled: inert,
             className: baseCss.buttonPrimary,
+            title: '上次应用失败;重试做冲突/策略检查后登记',
           }, '重试应用')
           : null,
         actions.canRollback
@@ -145,6 +147,7 @@ export function ReviewBar(props: ReviewBarProps): ReactElement {
             onClick: () => run(() => api.applyChange(change.id)),
             disabled: inert,
             className: baseCss.buttonPrimary,
+            title: '回滚后再应用,恢复为修改后的内容并登记',
           }, '重新应用')
           : null,
       ),
