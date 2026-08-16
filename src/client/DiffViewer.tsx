@@ -10,7 +10,7 @@
  * @module dsh-change-center/client
  */
 
-import { createElement, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement } from 'react'
+import { createElement, useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import type { WireChange, WireFinding, WireReview } from './index.ts'
 import type { SideBySideRow, DiffHunk } from '../services/DiffService.ts'
 import { countDiff, diffHunks, sideBySideRows } from '../services/DiffService.ts'
@@ -379,9 +379,10 @@ function unifiedLineNumbers(lines: string[]): { before: (number | null)[]; after
 }
 
 
-/** Qoder 风格:hunk 分组的 diff 视图 —— 块内编辑、应用/撤销、操作完自动跳下一块、↑/↓ 自由跳转。 */
-/** Qoder 风格:hunk 分组的操作视图 —— 块内编辑、应用/撤销、操作后自动跳下一块、↑/↓ 自由跳转。
- *  `layout='unified'` 单栏 -/+ 行;`layout='side-by-side'` 双栏 before|after(并排模式同样有操作面板)。 */
+/** Qoder 风格:hunk 分组的 diff 视图 —— 操作按钮直接融入每块头部的操作栏
+ *  (行号区间 + 已应用/已撤销 + 编辑/撤销该块/应用该块),不再使用浮动面板;
+ *  点击任意块定位、↑/↓ 自由跳转、操作成功自动跳下一块。
+ *  `layout='unified'` 单栏 -/+ 行;`layout='side-by-side'` 双栏 before|after。 */
 function HunkedView(props: {
   hunks: DiffHunk[]
   applied: boolean[]
@@ -396,7 +397,6 @@ function HunkedView(props: {
   const [draft, setDraft] = useState('')
   const refs = useRef<(HTMLDivElement | null)[]>([])
   const scrollRef = useRef<HTMLDivElement | null>(null)
-  const panelRef = useRef<HTMLDivElement | null>(null)
 
   // 每个块在 after 文件中的起始行号:beforeStart + 前面所有块的净增量
   // (afterLines − beforeLines)。插入行号 = afterStart + i,与并排/统一一致。
@@ -415,33 +415,10 @@ function HunkedView(props: {
     if (active >= hunks.length) setActive(Math.max(0, hunks.length - 1))
   }, [hunks.length, active])
 
-  /** 面板顶部位置(容器内绝对定位):贴在激活块开始行,钳制在容器内。 */
-  const [panelTop, setPanelTop] = useState(8)
-
   /** 程序化跳转时间戳:跳转后的短窗口内,onScroll 自动跟踪不覆盖跳转目标。 */
   const jumpLockRef = useRef(0)
 
-  /** 操作面板高度(测量)。 */
-  const panelHeight = (): number => panelRef.current?.offsetHeight ?? 38
-
-  /** 面板移到激活块开始行的右上侧(随滚动跟随,不越界)。 */
-  const updatePanelPosition = (index: number): void => {
-    const container = scrollRef.current
-    const el = refs.current[index]
-    if (container === null || el === null || el === undefined) return
-    const containerRect = container.getBoundingClientRect()
-    const elRect = el.getBoundingClientRect()
-    const raw = elRect.top - containerRect.top
-    const maxTop = Math.max(8, container.clientHeight - panelHeight() - 8)
-    setPanelTop(Math.min(Math.max(raw, 8), maxTop))
-  }
-
-  // 激活块变化(点击/↑↓/自动跳块)时面板跟随;用 layout effect 保证绘制前定位,不闪跳。
-  useLayoutEffect(() => {
-    updatePanelPosition(active)
-  }, [active, hunks.length])
-
-  /** 滚动容器内把某块定位到容器顶部,并设为当前块;面板随后贴其开始行右上侧。 */
+  /** 滚动容器内把某块定位到容器顶部,并设为当前块(操作栏高亮)。 */
   const scrollTo = (index: number): void => {
     if (index < 0 || index >= hunks.length) return
     jumpLockRef.current = Date.now()
@@ -453,20 +430,17 @@ function HunkedView(props: {
     if (container === null || el === null || el === undefined || !container.contains(el)) return
     // 1) 容器内部滚动到块顶。
     container.scrollTop = Math.max(0, el.offsetTop - 8)
-    // 2) 把容器(其顶部即面板与块开始行的位置)带进页面视野。
+    // 2) 把容器带进页面视野。
     container.scrollIntoView({ block: 'nearest' })
-    // 3) 立即重算 + 下一帧兜底(scrollIntoView 可能刚改变了滚动位置)。
-    updatePanelPosition(index)
+    // 3) 下一帧解锁,允许自动跟踪恢复(scrollIntoView 可能刚改变了滚动位置)。
     requestAnimationFrame(() => {
-      updatePanelPosition(index)
-      // 跳转窗口结束,允许自动跟踪恢复。
       if (Date.now() - jumpLockRef.current >= 180) jumpLockRef.current = 0
     })
   }
   const next = (): void => scrollTo(active + 1)
   const prev = (): void => scrollTo(active - 1)
 
-  /** 跟随滑动:自动激活容器顶部处的块;滚动到底部时选中最后一块;面板贴其开始行。 */
+  /** 跟随滑动:自动激活容器顶部处的块;滚动到底部时选中最后一块。 */
   const onScroll = (): void => {
     const container = scrollRef.current
     if (container === null) return
@@ -484,7 +458,6 @@ function HunkedView(props: {
     // 底部特例:最后一小块可能顶边在参考线下方,永远轮不到它被选中。
     if (atBottom) best = hunks.length - 1
     if (best !== active) setActive(best)
-    updatePanelPosition(best)
   }
 
   // 操作成功后自动跳到下一个块;失败停留在当前块。
@@ -529,46 +502,9 @@ function HunkedView(props: {
     return () => window.removeEventListener('keydown', onKey, true)
   })
 
-  // 操作面板:绝对定位,贴在激活块开始行的右上侧,随滑动跟随(updatePanelPosition)。
-  const renderOpPanel = (index: number): ReactElement => {
-    const isApplied = applied[index] ?? true
-    const isEditing = editing === index
-    return createElement('div', {
-      className: css.hunkOpPanel,
-      ref: panelRef,
-      style: { top: panelTop },
-      onClick: (event: { stopPropagation: () => void }) => event.stopPropagation(),
-    },
-    createElement('span', { className: css.hunkOpTitle }, `${index + 1}/${hunks.length}`),
-    createElement('span', { className: isApplied ? css.hunkAppliedTag : css.hunkRevertedTag },
-      isApplied ? '已应用' : '已撤销'),
-    createElement('div', { className: css.hunkOpActions },
-      createElement('button', {
-        className: css.hunkNavBtn,
-        disabled: index <= 0,
-        onClick: () => scrollTo(index - 1),
-        title: '上一个块 (↑)',
-      }, '↑'),
-      isApplied && !isEditing && onEditHunk !== undefined
-        ? createElement('button', { className: baseCss.buttonMini, onClick: () => startEdit(index) }, '编辑')
-        : null,
-      !isEditing
-        ? (isApplied
-          ? createElement('button', { className: baseCss.buttonMini, onClick: () => runOp(index, () => onHunk(index, true)) }, '撤销该块')
-          : createElement('button', { className: baseCss.buttonMini, onClick: () => runOp(index, () => onHunk(index, false)) }, '应用该块'))
-        : null,
-      createElement('button', {
-        className: css.hunkNavBtn,
-        disabled: index >= hunks.length - 1,
-        onClick: () => scrollTo(index + 1),
-        title: '下一个块 (↓)',
-      }, '↓'),
-    ),
-    )
-  }
+  const stop = (handler: () => void) => (event: { stopPropagation: () => void }) => { event.stopPropagation(); handler() }
 
   return createElement('div', { className: css.hunkScroll, ref: scrollRef, onScroll },
-    renderOpPanel(active),
     layout === 'side-by-side'
       ? createElement('div', { className: css.hunkSideHeader },
         createElement('div', { className: css.sideColHeader }, '修改前'),
@@ -584,14 +520,28 @@ function HunkedView(props: {
         key: hunk.index,
         ref: (el: HTMLDivElement | null): void => { refs.current[hunk.index] = el },
         className: isActive ? `${css.hunkFlow} ${css.hunkFlowActive}` : css.hunkFlow,
-        // 点击任意块 = 设为当前块(滚动定位到面板下方)。
+        // 点击任意块 = 设为当前块(滚动定位到容器顶部)。
         onClick: () => scrollTo(hunk.index),
       },
-      // 行号区间标记(Git 风格 `-起,数 +起,数`):定位明确,替换行数字不再显得重复。
-      createElement('div', { className: css.hunkDivider },
-        createElement('span', { className: css.hunkRange },
-          `-${hunk.beforeStart}${hunk.beforeLines.length > 1 ? `,${hunk.beforeLines.length}` : ''} ` +
-          `+${afterStarts[hunk.index]}${displayLines.length > 1 ? `,${displayLines.length}` : ''}`),
+      // 块操作栏融入 diff:行号区间 + 已应用/已撤销 + 操作按钮(取代浮动面板)。
+      createElement('div', {
+        className: isActive ? `${css.hunkBar} ${css.hunkBarActive}` : css.hunkBar,
+      },
+      createElement('span', { className: css.hunkRange },
+        `-${hunk.beforeStart}${hunk.beforeLines.length > 1 ? `,${hunk.beforeLines.length}` : ''} ` +
+        `+${afterStarts[hunk.index]}${displayLines.length > 1 ? `,${displayLines.length}` : ''}`),
+      createElement('span', { className: isApplied ? css.hunkAppliedTag : css.hunkRevertedTag },
+        isApplied ? '已应用' : '已撤销'),
+      createElement('div', { className: css.hunkBarActions },
+        isApplied && !isEditing && onEditHunk !== undefined
+          ? createElement('button', { className: baseCss.buttonMini, onClick: stop(() => startEdit(hunk.index)) }, '编辑')
+          : null,
+        !isEditing
+          ? (isApplied
+            ? createElement('button', { className: baseCss.buttonMini, onClick: stop(() => runOp(hunk.index, () => onHunk(hunk.index, true))) }, '撤销该块')
+            : createElement('button', { className: baseCss.buttonMini, onClick: stop(() => runOp(hunk.index, () => onHunk(hunk.index, false))) }, '应用该块'))
+          : null,
+      ),
       ),
       isEditing
         ? createElement('div', { className: css.hunkEditArea },
