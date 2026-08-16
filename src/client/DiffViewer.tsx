@@ -418,6 +418,9 @@ function HunkedView(props: {
   /** 面板顶部位置(容器内绝对定位):贴在激活块开始行,钳制在容器内。 */
   const [panelTop, setPanelTop] = useState(8)
 
+  /** 程序化跳转时间戳:跳转后的短窗口内,onScroll 自动跟踪不覆盖跳转目标。 */
+  const jumpLockRef = useRef(0)
+
   /** 操作面板高度(测量)。 */
   const panelHeight = (): number => panelRef.current?.offsetHeight ?? 38
 
@@ -441,17 +444,24 @@ function HunkedView(props: {
   /** 滚动容器内把某块定位到容器顶部,并设为当前块;面板随后贴其开始行右上侧。 */
   const scrollTo = (index: number): void => {
     if (index < 0 || index >= hunks.length) return
+    jumpLockRef.current = Date.now()
     setActive(index)
     const container = scrollRef.current
     const el = refs.current[index]
-    if (container === null || el === null || el === undefined) return
+    // 防御:元素必须仍挂在容器内(合并/刷新时 ref 可能短暂指向旧元素,
+    // 其 offsetTop 失真会把容器滚到底、atBottom 误选最后一块)。
+    if (container === null || el === null || el === undefined || !container.contains(el)) return
     // 1) 容器内部滚动到块顶。
     container.scrollTop = Math.max(0, el.offsetTop - 8)
     // 2) 把容器(其顶部即面板与块开始行的位置)带进页面视野。
     container.scrollIntoView({ block: 'nearest' })
     // 3) 立即重算 + 下一帧兜底(scrollIntoView 可能刚改变了滚动位置)。
     updatePanelPosition(index)
-    requestAnimationFrame(() => updatePanelPosition(index))
+    requestAnimationFrame(() => {
+      updatePanelPosition(index)
+      // 跳转窗口结束,允许自动跟踪恢复。
+      if (Date.now() - jumpLockRef.current >= 180) jumpLockRef.current = 0
+    })
   }
   const next = (): void => scrollTo(active + 1)
   const prev = (): void => scrollTo(active - 1)
@@ -460,6 +470,8 @@ function HunkedView(props: {
   const onScroll = (): void => {
     const container = scrollRef.current
     if (container === null) return
+    // 程序化跳转后的短窗口内,不覆盖跳转目标(避免 1→2 被旧几何改写成 4)。
+    if (Date.now() - jumpLockRef.current < 180) return
     const scrollable = container.scrollHeight > container.clientHeight + 2
     const atBottom = scrollable && container.scrollTop + container.clientHeight >= container.scrollHeight - 2
     let best = 0
