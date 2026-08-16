@@ -7,6 +7,7 @@
  */
 
 import { createElement, type ReactElement } from 'react'
+import { IconAlertCircle, IconBan, IconCheckCircle } from './icons.tsx'
 import css from './RiskSignal.module.css'
 
 /** The three signal levels. */
@@ -21,7 +22,11 @@ export interface RiskSignalProps {
   hint?: string
 }
 
-const GLYPH: Record<SignalLevel, string> = { ok: '✓', warn: '⚠', block: '⊘' }
+const GLYPH: Record<SignalLevel, ReactElement> = {
+  ok: createElement(IconCheckCircle, null),
+  warn: createElement(IconAlertCircle, null),
+  block: createElement(IconBan, null),
+}
 const CLASS: Record<SignalLevel, string> = { ok: css.ok, warn: css.warn, block: css.block }
 
 /** Compact ✓/⚠/⛔ signal with an optional count badge and hover reason. */

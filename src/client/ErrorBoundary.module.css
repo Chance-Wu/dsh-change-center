@@ -1,0 +1,27 @@
+/* ErrorBoundary：渲染错误占位（收拢进 token 体系,对齐卡片规范）。 */
+.box {
+  padding: 18px 20px;
+  border: 1px solid var(--dsw-alias-state-error-primary);
+  border-radius: 14px;
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-primary);
+  font-family: inherit;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.title {
+  font-weight: 600;
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.detail {
+  margin: 0;
+  font-size: var(--dsw-font-xxs-12);
+  white-space: pre-wrap;
+  color: var(--dsw-alias-label-secondary);
+  max-height: 200px;
+  overflow: auto;
+}

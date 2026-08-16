@@ -3,13 +3,13 @@
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  font-size: var(--dsw-font-xxs-12);
   line-height: 1;
   cursor: default;
 }
 
 .glyph {
-  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
 }
 
 .count {

@@ -15,6 +15,8 @@
 import { createElement, useEffect, useState, type ReactElement } from 'react'
 import type { ChangeCenterApi, WireSession } from './index.ts'
 import { ChangeReviewPanel } from './ChangeReviewPanel.tsx'
+import { Segmented } from './Segmented.tsx'
+import { Chevron } from './icons.tsx'
 import baseCss from './styles.module.css'
 import css from './ChangeCenterSection.module.css'
 
@@ -126,16 +128,14 @@ export function ChangeCenterSection(props: ChangeCenterSectionProps): ReactEleme
   return createElement('div', { className: css.section },
     createElement('div', { className: css.headerRow },
       createElement('div', { className: css.header }, '变更中心'),
-      createElement('div', { className: css.viewTabs },
-        createElement('button', {
-          className: view === 'current' ? css.viewTabActive : css.viewTab,
-          onClick: () => setView('current'),
-        }, '当前'),
-        createElement('button', {
-          className: view === 'sessions' ? css.viewTabActive : css.viewTab,
-          onClick: () => setView('sessions'),
-        }, '会话'),
-      ),
+      createElement(Segmented, {
+        segments: [
+          { value: 'current', label: '当前' },
+          { value: 'sessions', label: '会话' },
+        ],
+        value: view,
+        onChange: (next: string) => setView(next as SectionView),
+      }),
     ),
     error !== null ? createElement('div', { className: css.error }, error) : null,
 
@@ -289,7 +289,8 @@ function SessionTimeline(props: {
           onClick: () => toggleGroup(group.label),
           'aria-expanded': !isCollapsed,
         },
-        createElement('span', null, `${isCollapsed ? '▸' : '▾'} ${group.label}`),
+        createElement(Chevron, { expanded: !isCollapsed }),
+        createElement('span', null, group.label),
         createElement('span', { className: css.dayCount }, `${group.sessions.length}`),
         ),
         !isCollapsed

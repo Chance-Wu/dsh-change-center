@@ -40,10 +40,8 @@
 
 .evalTitle {
   font-size: var(--dsw-font-xxxs-11);
-  font-weight: 700;
+  font-weight: 600;
   color: var(--dsw-alias-label-tertiary);
-  text-transform: uppercase;
-  letter-spacing: 0.02em;
   margin-bottom: 4px;
 }
 

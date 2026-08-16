@@ -16,15 +16,18 @@
 .groupTitle {
   background: none;
   border: none;
-  padding: 2px 0;
+  padding: 6px 8px;
   font: inherit;
   font-size: var(--dsw-font-xxs-12);
-  font-weight: 700;
+  font-weight: 600;
   color: var(--dsw-alias-label-secondary);
   cursor: pointer;
   text-align: left;
   width: 100%;
-  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 8px;
   transition: color 120ms ease, background 120ms ease;
 }
 .groupTitle:hover {
@@ -115,7 +118,7 @@
 }
 
 .findingTitle {
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .findingFix {
@@ -205,7 +208,7 @@
 }
 .confidenceValue {
   font-size: var(--dsw-font-xxxs-11);
-  font-weight: 700;
+  font-weight: 600;
   color: var(--dsw-alias-state-business-primary);
   font-variant-numeric: tabular-nums;
   flex: none;
@@ -219,7 +222,7 @@
 }
 .suggestTag {
   font-size: var(--dsw-font-xxxs-11);
-  font-weight: 700;
+  font-weight: 600;
   color: var(--dsw-alias-state-success-primary);
   background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 12%, transparent);
   border-radius: 6px;

@@ -2,9 +2,10 @@
    代码字体统一用 --dsw-font-family-mono(带 monospace 兜底),Harness 不提供
    --ds-* 前缀变量,之前 var(--ds-font-family-code) 未定义导致代码字体失效。 */
 .viewer {
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 12px;
+  border: none;
+  border-radius: 14px;
   background: var(--dsw-alias-bg-layer-2);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--dsw-alias-bg-layer-4) 25%, transparent);
   padding: 12px 14px 14px;
   min-width: 0;
 }
@@ -220,11 +221,9 @@
   border-bottom: 1px solid var(--dsw-alias-border-l1);
   background: var(--dsw-alias-bg-layer-3);
   font-size: var(--dsw-font-xxxs-11);
-  font-weight: 700;
+  font-weight: 600;
   color: var(--dsw-alias-label-tertiary);
-  text-transform: uppercase;
-  letter-spacing: 0.02em;
-}
+  }
 .sideColHeader {
   flex: 1;
   padding: 4px 8px;
@@ -374,10 +373,11 @@
 
 /* 5.x AI 变更解释卡 */
 .explanation {
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 12px;
+  border: none;
+  border-radius: 14px;
   background: var(--dsw-alias-bg-layer-2);
-  padding: 10px 12px;
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--dsw-alias-bg-layer-4) 25%, transparent);
+  padding: 12px 14px;
   margin-bottom: 8px;
   display: flex;
   flex-direction: column;
@@ -391,7 +391,7 @@
 }
 .explanationTitle {
   font-size: var(--dsw-font-xxs-12);
-  font-weight: 700;
+  font-weight: 600;
   color: var(--dsw-alias-label-primary);
 }
 .explanationRisks {
@@ -407,10 +407,8 @@
 .explanationLabel {
   flex: none;
   font-size: var(--dsw-font-xxxs-11);
-  font-weight: 700;
+  font-weight: 600;
   color: var(--dsw-alias-label-tertiary);
-  text-transform: uppercase;
-  letter-spacing: 0.02em;
   min-width: 42px;
 }
 .explanationText {
@@ -480,9 +478,9 @@
   white-space: nowrap;
   max-width: 160px;
 }
-.relatedAdd { color: var(--dsw-alias-state-success-primary); font-weight: 700; }
-.relatedMod { color: var(--dsw-alias-state-business-primary); font-weight: 700; }
-.relatedDel { color: var(--dsw-alias-state-error-primary); font-weight: 700; }
+.relatedAdd { color: var(--dsw-alias-state-success-primary); font-weight: 600; }
+.relatedMod { color: var(--dsw-alias-state-business-primary); font-weight: 600; }
+.relatedDel { color: var(--dsw-alias-state-error-primary); font-weight: 600; }
 
 /* 行内标注 */
 .inlineNote {

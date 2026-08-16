@@ -34,6 +34,7 @@ import { ReviewBar } from './ReviewBar.tsx'
 import { IntelligencePanel } from './IntelligencePanel.tsx'
 import { RiskSignal, type SignalLevel } from './RiskSignal.tsx'
 import { Segmented } from './Segmented.tsx'
+import { Chevron } from './icons.tsx'
 import { statusMeta } from './statusMeta.ts'
 import { summarizeChanges } from './summary.ts'
 import baseCss from './styles.module.css'
@@ -632,7 +633,11 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
             createElement('button', {
               onClick: () => setTimelineOpen(!timelineOpen),
               className: css.timelineToggle,
-            }, `${timelineOpen ? '▾' : '▸'} Timeline`),
+              'aria-expanded': timelineOpen,
+            },
+            createElement(Chevron, { expanded: timelineOpen }),
+            createElement('span', null, 'Timeline'),
+            ),
             timelineOpen
               ? createElement(TimelineView, { events: timeline, changes: fileChanges, limit: 5 })
               : null,
@@ -642,7 +647,11 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
             createElement('button', {
               onClick: () => setFilesOpen(!filesOpen),
               className: css.timelineToggle,
-            }, `${filesOpen ? '▾' : '▸'} 修改 ${fileChanges.length} 个文件`),
+              'aria-expanded': filesOpen,
+            },
+            createElement(Chevron, { expanded: filesOpen }),
+            createElement('span', null, `修改 ${fileChanges.length} 个文件`),
+            ),
             filesOpen
               ? createElement('div', { className: css.focusFiles },
                 fileChanges.slice(0, 12).map(change => {
@@ -684,7 +693,11 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
             createElement('button', {
               onClick: () => setGitOpen(!gitOpen),
               className: css.timelineToggle,
-            }, `${gitOpen ? '▾' : '▸'} Git 操作`),
+              'aria-expanded': gitOpen,
+            },
+            createElement(Chevron, { expanded: gitOpen }),
+            createElement('span', null, 'Git 操作'),
+            ),
             gitRepo !== null
               ? createElement('span', { className: css.gitMeta },
                 `${gitRepo.branch} · ${gitRepo.head}${gitRepo.dirty ? ' · 有未提交修改' : ' · 干净'}`)

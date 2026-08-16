@@ -16,6 +16,7 @@ import { PolicyPanel } from './PolicyPanel.tsx'
 import { TimelineView } from './TimelineView.tsx'
 import { LOOP_STOPPED_ZH, RISK_ZH, SEVERITY_ZH } from './i18n.ts'
 import { RiskSignal, type SignalLevel } from './RiskSignal.tsx'
+import { Chevron } from './icons.tsx'
 import baseCss from './styles.module.css'
 import css from './IntelligencePanel.module.css'
 
@@ -170,7 +171,10 @@ function Group(props: { title: string; defaultOpen?: boolean; children?: ReactEl
       onClick: () => setExpanded(!expanded),
       className: css.groupTitle,
       'aria-expanded': expanded,
-    }, `${expanded ? '▾' : '▸'} ${props.title}`),
+    },
+    createElement(Chevron, { expanded }),
+    createElement('span', null, props.title),
+    ),
     expanded ? createElement('div', { className: css.groupBody }, props.children) : null,
   )
 }

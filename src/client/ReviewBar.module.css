@@ -10,9 +10,10 @@
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 12px;
+  border: none;
+  border-radius: 14px;
   background: var(--dsw-alias-bg-layer-2);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--dsw-alias-bg-layer-4) 25%, transparent);
   padding: 8px 12px;
 }
 
@@ -71,10 +72,11 @@
 /* 4.6 Conflict Center:双栏对比 + 合并 */
 .conflictView {
   margin-top: 8px;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 12px;
+  border: none;
+  border-radius: 14px;
   background: var(--dsw-alias-bg-layer-2);
-  padding: 10px 12px;
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--dsw-alias-bg-layer-4) 25%, transparent);
+  padding: 12px 14px;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -96,7 +98,7 @@
 
 .conflictColTitle {
   font-size: var(--dsw-font-xxxs-11);
-  font-weight: 700;
+  font-weight: 600;
   color: var(--dsw-alias-label-tertiary);
 }
 

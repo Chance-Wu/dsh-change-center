@@ -5,10 +5,11 @@
   height: 100%;
   min-height: 0;
   overflow: auto;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 12px;
+  border: none;
+  border-radius: 14px;
   background: var(--dsw-alias-bg-layer-2);
-  padding: 6px;
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--dsw-alias-bg-layer-4) 25%, transparent);
+  padding: 8px;
   min-width: 0;
   box-sizing: border-box;
 }
@@ -17,12 +18,10 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: var(--dsw-font-xxxs-11);
-  font-weight: 700;
-  color: var(--dsw-alias-label-tertiary);
-  text-transform: uppercase;
-  letter-spacing: 0.02em;
-  padding: 2px 6px 6px;
+  font-size: var(--dsw-font-xxs-12);
+  font-weight: 600;
+  color: var(--dsw-alias-label-secondary);
+  padding: 2px 6px 8px;
 }
 
 /* 文件数徽标 */
@@ -30,15 +29,14 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 18px;
-  height: 16px;
-  padding: 0 5px;
+  min-width: 20px;
+  height: 18px;
+  padding: 0 6px;
   border-radius: 8px;
   font-size: var(--dsw-font-xxxs-11);
   font-variant-numeric: tabular-nums;
   color: var(--dsw-alias-label-secondary);
   background: var(--dsw-alias-bg-layer-3);
-  border: 1px solid var(--dsw-alias-border-l1);
 }
 
 /* 4.x:过滤栏(搜索 / 操作 / 路径前缀) */
@@ -65,7 +63,7 @@
 .filterInput:focus {
   outline: none;
   border-color: var(--dsw-alias-state-business-primary);
-  box-shadow: 0 0 0 1px var(--dsw-alias-state-business-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--dsw-alias-state-business-primary) 20%, transparent);
 }
 
 .opToggles {
@@ -144,7 +142,7 @@
   opacity: 0.7;
 }
 
-/* 文件行：hover / 选中状态（4.x 审美:更清晰的行与过渡） */
+/* 文件行：hover / 选中状态（选中=单一背景 tint,不叠边框） */
 .fileRow {
   display: flex;
   align-items: center;
@@ -161,14 +159,13 @@
   color: var(--dsw-alias-label-primary);
   white-space: nowrap;
   overflow: hidden;
-  transition: background 100ms ease, box-shadow 100ms ease;
+  transition: background 100ms ease;
 }
 .fileRow:hover {
   background: var(--dsw-alias-interactive-bg-hover);
 }
 .fileRow[data-selected='true'] {
-  background: var(--dsw-alias-interactive-bg-active);
-  box-shadow: inset 0 0 0 1px var(--dsw-alias-state-business-primary);
+  background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 10%, transparent);
 }
 
 .fileName {
@@ -230,7 +227,7 @@
 .statusGlyph {
   flex: none;
   margin-left: 6px;
-  font-weight: 700;
+  font-weight: 600;
   font-size: var(--dsw-font-xxxs-11);
 }
 .statusFailed {
@@ -301,11 +298,9 @@
   gap: 8px;
   padding: 3px 6px;
   font-size: var(--dsw-font-xxxs-11);
-  font-weight: 700;
+  font-weight: 600;
   color: var(--dsw-alias-label-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.02em;
-}
+  }
 
 .groupLabel {
   overflow: hidden;
