@@ -95,7 +95,10 @@ export function DiffViewer(props: DiffViewerProps): ReactElement {
   )
   // 5.x 大文件折叠:>500 行先折叠,「展开全部」渐进加载。
   const [diffExpanded, setDiffExpanded] = useState(false)
+  // 折叠阈值看渲染体积(含未修改的上下文行,避免大文件全量渲染)。
   const totalDiffLines = useMemo(() => diffTextLines(change.diff).length, [change.diff])
+  // 展示数 = 实际变更行(增 + 删),而不是 diff 全文行数(含上下文,约等于文件行数)。
+  const changedCount = counts.additions + counts.deletions
   const LARGE_DIFF_LINES = 500
 
   // 保存反馈:乐观提示「✓ 已保存」1.5 秒(失败由面板错误区呈现)。
@@ -169,7 +172,7 @@ export function DiffViewer(props: DiffViewerProps): ReactElement {
       (diffOpen || props.review === undefined || props.review === null) && (
         totalDiffLines > LARGE_DIFF_LINES && !diffExpanded
           ? createElement('div', { className: css.diffLarge },
-            createElement('span', null, `共 ${totalDiffLines} 行变更`),
+            createElement('span', null, `共 ${changedCount} 行变更`),
             createElement('button', { onClick: () => setDiffExpanded(true), className: baseCss.buttonGhost }, '展开全部'),
           )
           : mode === 'unified'
