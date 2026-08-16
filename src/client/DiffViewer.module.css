@@ -506,22 +506,6 @@
 .relatedMod { color: var(--dsw-alias-state-business-primary); font-weight: 700; }
 .relatedDel { color: var(--dsw-alias-state-error-primary); font-weight: 700; }
 
-/* 5.x Focus Diff */
-.focusDiff {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.focusLiner {
-  font-size: var(--dsw-font-xxs-12);
-  color: var(--dsw-alias-label-secondary);
-  border-left: 3px solid var(--dsw-alias-state-business-primary);
-  padding: 6px 10px;
-  background: var(--dsw-alias-bg-layer-2);
-  border-radius: 0 8px 8px 0;
-  line-height: 1.6;
-}
-
 /* 行内标注 */
 .inlineNote {
   margin-left: 8px;

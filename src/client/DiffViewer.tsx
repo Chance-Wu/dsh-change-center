@@ -19,7 +19,7 @@ import css from './DiffViewer.module.css'
 import baseCss from './styles.module.css'
 
 /** Props for the diff viewer. */
-export type DiffMode = 'focus' | 'unified' | 'side-by-side' | 'editor'
+export type DiffMode = 'unified' | 'side-by-side' | 'editor'
 
 export interface DiffViewerProps {
   change: WireChange
@@ -142,7 +142,6 @@ export function DiffViewer(props: DiffViewerProps): ReactElement {
         }, `${meta.icon} ${meta.label}`),
       ),
       createElement('div', { className: css.modeTabs },
-        modeTab('聚焦', mode === 'focus', () => onModeChange('focus')),
         // 有块级操作能力时,「统一」模式承载逐块 编辑/应用/撤销,标签加「块」标记。
         modeTab(hunks.length > 0 && props.onHunk !== undefined && !readOnly ? '统一·块' : '统一', mode === 'unified', () => onModeChange('unified')),
         modeTab('并排', mode === 'side-by-side', () => onModeChange('side-by-side')),
@@ -173,7 +172,6 @@ export function DiffViewer(props: DiffViewerProps): ReactElement {
             createElement('span', null, `共 ${totalDiffLines} 行变更`),
             createElement('button', { onClick: () => setDiffExpanded(true), className: baseCss.buttonGhost }, '展开全部'),
           )
-          : mode === 'focus' ? createElement(FocusView, { change, review: props.review ?? null, explanation })
           : mode === 'unified'
             ? (hunks.length > 0 && props.onHunk !== undefined && !readOnly
               ? createElement(HunkedView, { change, hunks, applied, edits: hunkEdits, onHunk: props.onHunk, onEditHunk: props.onEditHunk })
@@ -369,39 +367,6 @@ function riskSeverityClass(severity: string): string {
 }
 
 const OPERATION_MARK: Record<string, string> = { create: 'A', modify: 'M', delete: 'D', rename: 'R' }
-
-/** 5.x Focus Diff:只显示修改块(+/- 行)+ 一句话说明。 */
-function FocusView(props: { change: WireChange; review: WireReview | null; explanation: ChangeExplanation | null }): ReactElement {
-  const { change, review, explanation } = props
-  const rawLines = diffTextLines(change.diff)
-  // 行号映射:删除行 = before 行号,插入行 = after 行号(与统一视图一致)。
-  const nums = unifiedLineNumbers(rawLines)
-  const lines = rawLines
-    .map((line, index) => ({ line, before: nums.before[index], after: nums.after[index] }))
-    .filter(row => row.line.startsWith('+') || row.line.startsWith('-'))
-  const oneLiner = explanation !== null && explanation.reason.length > 0
-    ? explanation.reason
-    : review !== null && review.summary.length > 0 ? review.summary : ''
-  return createElement('div', { className: css.focusDiff },
-    oneLiner.length > 0
-      ? createElement('div', { className: css.focusLiner }, oneLiner)
-      : null,
-    lines.length > 0
-      ? createElement('div', { className: css.diffBody },
-        lines.map((row, index) => {
-          const kind = row.line.startsWith('+') ? 'added' : 'removed'
-          return createElement('div', {
-            key: index,
-            className: kind === 'added' ? `${css.diffRow} ${css.diffRowAdded}` : `${css.diffRow} ${css.diffRowRemoved}`,
-          },
-          createElement('span', { className: css.lineNo }, kind === 'added' ? String(row.after ?? '') : String(row.before ?? '')),
-          createElement('span', { className: css.lineText }, row.line),
-          )
-        }),
-      )
-      : createElement('div', { className: css.diffNoChange }, '(无变更)'),
-  )
-}
 
 /** 行内标注:unified diff 行号映射(finding.line 命中)。 */
 function unifiedLineNumbers(lines: string[]): { before: (number | null)[]; after: (number | null)[] } {

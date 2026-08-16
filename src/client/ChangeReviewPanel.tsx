@@ -923,7 +923,7 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
               onEditHunk: readOnly ? undefined : editHunk,
               review,
               changes: fileChanges,
-              onSelectChange: (id) => { setSelectedChange(id); setDiffMode('focus') },
+              onSelectChange: (id) => setSelectedChange(id),
               onRunReview: readOnly ? undefined : () => {
                 api.reviewRun(sessionId).then(afterAction).catch(err => setError(err instanceof Error ? err.message : String(err)))
               },

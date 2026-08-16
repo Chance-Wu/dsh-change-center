@@ -327,6 +327,9 @@
   font-size: var(--dsw-font-xxs-12);
   color: var(--dsw-alias-label-primary);
   animation: toastSlideIn 160ms cubic-bezier(0.4, 0, 0.2, 1);
+  /* 高于 sticky Action Dock,Undo 不被覆盖。 */
+  position: relative;
+  z-index: 7;
 }
 @keyframes toastSlideIn {
   from { opacity: 0; transform: translateY(-6px); }
@@ -503,7 +506,7 @@
   margin-left: 2px;
 }
 
-/* 4.x 底部 Action Dock */
+/* 4.x 底部 Action Dock:sticky 跟随滚动,浏览长 diff 时操作始终可见 */
 .actionDock {
   display: flex;
   align-items: center;
@@ -513,8 +516,11 @@
   border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 12px;
   background: var(--dsw-alias-bg-layer-2);
-  box-shadow: var(--dsw-shadow-lv1);
+  box-shadow: var(--dsw-shadow-lv2);
   flex: none;
+  position: sticky;
+  bottom: 0;
+  z-index: 6;
 }
 
 .dockInfo {
