@@ -544,9 +544,11 @@
 .noteWarn { color: var(--dsw-alias-state-warn-primary); font-size: 8px; }
 .noteInfo { color: var(--dsw-alias-label-tertiary); font-size: 8px; }
 
-/* Qoder 风格 hunk 块视图:滚动容器 + 跟随当前块的操作面板(无框风格) */
+/* Qoder 风格 hunk 块视图:滚动容器 + 右侧液态操作面板(无框风格) */
 .hunkScroll {
   position: relative;
+  display: flex;
+  flex-direction: column;
   max-height: 60vh;
   overflow: auto;
   border: 1px solid var(--dsw-alias-border-l1);
@@ -554,33 +556,40 @@
   background: var(--dsw-alias-bg-layer-1);
 }
 
-/* 操作面板:sticky 于滚动区顶部 —— 跟随滑动始终可见,操作当前块;
-   紧凑工具栏 + 出现动效。 */
+/* 操作面板:右侧液态工具栏 —— 胶囊造型 + 品牌色渐变 + 弹性动效;
+   sticky 于滚动区顶部始终可见;滚动时自动跟踪面板下方的块。 */
 .hunkOpPanel {
+  align-self: flex-end;
   position: sticky;
-  top: 0;
+  top: 8px;
   z-index: 5;
   display: flex;
   align-items: center;
   gap: 8px;
   width: fit-content;
   max-width: calc(100% - 16px);
-  margin: 6px 8px;
+  margin: 6px 8px 8px;
   padding: 4px 8px;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 10px;
-  background: var(--dsw-alias-bg-layer-2);
-  box-shadow: var(--dsw-shadow-lv1);
-  animation: hunkPanelIn 180ms cubic-bezier(0.4, 0, 0.2, 1);
+  border: 1px solid color-mix(in srgb, var(--dsw-alias-brand-primary) 22%, var(--dsw-alias-border-l2));
+  border-radius: 999px;
+  background: linear-gradient(135deg, var(--dsw-alias-bg-layer-2) 0%, color-mix(in srgb, var(--dsw-alias-brand-primary) 7%, var(--dsw-alias-bg-layer-2)) 100%);
+  box-shadow: var(--dsw-shadow-lv2);
+  animation: hunkPanelIn 260ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+
+.hunkOpPanel:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--dsw-shadow-lv2), 0 4px 14px color-mix(in srgb, var(--dsw-alias-brand-primary) 14%, transparent);
 }
 
 @keyframes hunkPanelIn {
-  from { opacity: 0; transform: translateY(-5px); }
-  to { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; transform: translateY(-8px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .hunkOpPanel { animation: none; }
+  .hunkOpPanel { animation: none; transition: none; }
 }
 
 .hunkOpTitle {
@@ -619,7 +628,7 @@
   white-space: nowrap;
 }
 
-/* 上/下导航:小图标按钮 */
+/* 上/下导航:小圆形图标按钮(液态风格) */
 .hunkNavBtn {
   width: 22px;
   height: 22px;
@@ -628,7 +637,7 @@
   align-items: center;
   justify-content: center;
   border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 6px;
+  border-radius: 999px;
   background: var(--dsw-alias-bg-layer-1);
   color: var(--dsw-alias-label-secondary);
   font-size: var(--dsw-font-xxs-12);
@@ -646,22 +655,20 @@
   cursor: default;
 }
 
-/* 流式块:无框,分隔线 + 行;激活块左侧强调条(带过渡) */
+/* 流式块:无框;块之间用空行分隔(不再画细线) */
 .hunkFlow {
   position: relative;
+  margin-bottom: 18px;
   transition: box-shadow 0.15s ease, background-color 0.15s ease;
+}
+
+.hunkFlow:last-child {
+  margin-bottom: 0;
 }
 
 .hunkFlowActive {
   box-shadow: inset 3px 0 0 var(--dsw-alias-brand-primary);
   background: color-mix(in srgb, var(--dsw-alias-brand-primary) 4%, transparent);
-}
-
-/* 块间细分割线:无文字,仅分隔相邻 hunk */
-.hunkDivider {
-  height: 1px;
-  margin: 2px 10px;
-  background: var(--dsw-alias-border-l1);
 }
 
 /* 块内编辑区:Qoder 风格 —— 直接改该块内容 */

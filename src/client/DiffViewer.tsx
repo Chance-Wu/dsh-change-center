@@ -546,8 +546,6 @@ function HunkedView(props: {
         // 点击任意块 = 设为当前块(滚动定位到面板下方)。
         onClick: () => scrollTo(hunk.index),
       },
-      // 块间细分割线(无文字,避免视觉噪音)。
-      createElement('div', { className: css.hunkDivider }),
       isEditing
         ? createElement('div', { className: css.hunkEditArea },
           createElement('textarea', {
