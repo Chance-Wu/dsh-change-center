@@ -471,7 +471,6 @@ function HunkedView(props: {
 
   const activeHunk = active < hunks.length ? hunks[active] : undefined
   const activeApplied = activeHunk !== undefined ? (applied[activeHunk.index] ?? true) : false
-  const activeLines = activeHunk !== undefined ? (edits[activeHunk.index] ?? activeHunk.afterLines) : []
   const isEditingActive = editing === active
 
   return createElement('div', { className: css.hunkScroll },
@@ -479,7 +478,7 @@ function HunkedView(props: {
     createElement('div', { className: css.hunkOpPanel },
       createElement('span', { className: css.hunkOpTitle },
         activeHunk !== undefined
-          ? `块 ${activeHunk.index + 1} / ${hunks.length} · -${activeHunk.beforeLines.length} +${activeLines.length}`
+          ? `${activeHunk.index + 1} / ${hunks.length}`
           : `0 / ${hunks.length}`),
       activeHunk !== undefined
         ? createElement('span', { className: activeApplied ? css.hunkAppliedTag : css.hunkRevertedTag },
@@ -524,10 +523,8 @@ function HunkedView(props: {
         ref: (el: HTMLDivElement | null): void => { refs.current[hunk.index] = el },
         className: isActive ? `${css.hunkFlow} ${css.hunkFlowActive}` : css.hunkFlow,
       },
-      // 块分隔线(无框):块号 + 行数。
-      createElement('div', { className: css.hunkDivider },
-        createElement('span', null, `块 ${hunk.index + 1} · -${hunk.beforeLines.length} +${displayLines.length}`),
-      ),
+      // 块间细分割线(无文字,避免视觉噪音)。
+      createElement('div', { className: css.hunkDivider }),
       isEditing
         ? createElement('div', { className: css.hunkEditArea },
           createElement('textarea', {

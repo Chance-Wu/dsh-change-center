@@ -615,22 +615,10 @@
   box-shadow: inset 3px 0 0 var(--dsw-alias-brand-primary);
 }
 
-/* 块分隔线:块号 + 行数(非卡片头) */
+/* 块间细分割线:无文字,仅分隔相邻 hunk */
 .hunkDivider {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 3px 10px;
-  font-size: var(--dsw-font-xxxs-11);
-  font-weight: 600;
-  color: var(--dsw-alias-label-tertiary);
-  background: var(--dsw-alias-bg-layer-3);
-}
-
-.hunkDivider::after {
-  content: '';
-  flex: 1;
   height: 1px;
+  margin: 2px 10px;
   background: var(--dsw-alias-border-l1);
 }
 
