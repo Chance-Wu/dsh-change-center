@@ -224,16 +224,32 @@
   flex: 1;
   padding: 4px 8px;
 }
+/* 并排 hunk 视图的列头(修改前|修改后),样式与完整并排一致 */
+.hunkSideHeader {
+  composes: sideHeader;
+}
 .sideRowDeletion {
   background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, var(--dsw-alias-bg-layer-1));
 }
 .sideRowInsertion {
   background: var(--dsw-alias-state-success-tertiary);
 }
+/* 列格:flex 单元格,行号固定宽 gutter 右对齐,文本填充剩余宽度 → 行号与代码严格对齐 */
 .sideCol {
   flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
   padding: 0 8px;
   min-height: 17px;
+}
+/* 右列:竖向分割线(加深左右分栏) */
+.sideColAfter {
+  border-left: 1px solid var(--dsw-alias-border-l2);
+}
+.sideText {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: pre;

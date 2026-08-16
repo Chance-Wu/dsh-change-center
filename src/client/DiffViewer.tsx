@@ -508,6 +508,11 @@ function HunkedView(props: {
         }, '↓ 下一块'),
       ),
     ),
+    layout === 'side-by-side'
+      ? createElement('div', { className: css.hunkSideHeader },
+        createElement('div', { className: css.sideColHeader }, '修改前'),
+        createElement('div', { className: `${css.sideColHeader} ${css.sideColAfter}` }, '修改后'))
+      : null,
     hunks.map(hunk => {
       const isApplied = applied[hunk.index] ?? true
       const isActive = active === hunk.index
@@ -585,11 +590,11 @@ function sideHunkBody(hunk: DiffHunk, isApplied: boolean, displayLines: string[]
     },
     createElement('div', { className: css.sideCol },
       createElement('span', { className: css.lineNo }, beforeLine !== null ? String(hunk.beforeStart + i) : ''),
-      beforeLine !== null ? createElement('span', { className: isApplied ? css.sideColDelText : css.sideColContextText }, beforeLine) : null,
+      beforeLine !== null ? createElement('span', { className: `${css.sideText} ${isApplied ? css.sideColDelText : css.sideColContextText}` }, beforeLine) : null,
     ),
-    createElement('div', { className: css.sideCol },
+    createElement('div', { className: `${css.sideCol} ${css.sideColAfter}` },
       createElement('span', { className: css.lineNo }, afterLine !== null ? String(afterStart + i) : ''),
-      afterLine !== null ? createElement('span', { className: css.sideColInsText }, afterLine) : null,
+      afterLine !== null ? createElement('span', { className: `${css.sideText} ${css.sideColInsText}` }, afterLine) : null,
     ),
     ))
   }
@@ -658,7 +663,7 @@ function SideBySideView(props: { rows: SideBySideRow[] }): ReactElement {
   return createElement('div', { className: css.sideBySide },
     createElement('div', { className: css.sideHeader },
       createElement('div', { className: css.sideColHeader }, '修改前'),
-      createElement('div', { className: css.sideColHeader }, '修改后'),
+      createElement('div', { className: `${css.sideColHeader} ${css.sideColAfter}` }, '修改后'),
     ),
     rows.map((row, index) => createElement('div', {
       key: index,
@@ -669,11 +674,11 @@ function SideBySideView(props: { rows: SideBySideRow[] }): ReactElement {
     },
     createElement('div', { className: css.sideCol },
       createElement('span', { className: css.lineNo }, row.beforeNo ?? ''),
-      row.deletion || !row.insertion ? createElement('span', { className: css.sideColDelText }, row.before ?? '') : null,
+      row.deletion || !row.insertion ? createElement('span', { className: `${css.sideText} ${css.sideColDelText}` }, row.before ?? '') : null,
     ),
-    createElement('div', { className: css.sideCol },
+    createElement('div', { className: `${css.sideCol} ${css.sideColAfter}` },
       createElement('span', { className: css.lineNo }, row.afterNo ?? ''),
-      row.insertion || !row.deletion ? createElement('span', { className: css.sideColInsText }, row.after ?? '') : null,
+      row.insertion || !row.deletion ? createElement('span', { className: `${css.sideText} ${css.sideColInsText}` }, row.after ?? '') : null,
     ),
     )),
   )
