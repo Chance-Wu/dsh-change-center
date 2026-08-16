@@ -469,9 +469,45 @@ function HunkedView(props: {
     return () => window.removeEventListener('keydown', onKey)
   })
 
-  return createElement('div', { className: css.hunkList },
-    createElement('div', { className: css.hunkHint },
-      '逐块操作:每个块可 编辑 / 应用 / 撤销,操作后自动跳到下一块;↑ ↓ 或键盘上下箭头自由跳转'),
+  const activeHunk = active < hunks.length ? hunks[active] : undefined
+  const activeApplied = activeHunk !== undefined ? (applied[activeHunk.index] ?? true) : false
+  const activeLines = activeHunk !== undefined ? (edits[activeHunk.index] ?? activeHunk.afterLines) : []
+  const isEditingActive = editing === active
+
+  return createElement('div', { className: css.hunkScroll },
+    // 跟随滑动的操作面板:始终可见,操作当前块(无框风格,块不各自带按钮)。
+    createElement('div', { className: css.hunkOpPanel },
+      createElement('span', { className: css.hunkOpTitle },
+        activeHunk !== undefined
+          ? `块 ${activeHunk.index + 1} / ${hunks.length} · -${activeHunk.beforeLines.length} +${activeLines.length}`
+          : `0 / ${hunks.length}`),
+      activeHunk !== undefined
+        ? createElement('span', { className: activeApplied ? css.hunkAppliedTag : css.hunkRevertedTag },
+          activeApplied ? '已应用' : '已撤销')
+        : null,
+      createElement('div', { className: css.hunkOpActions },
+        createElement('button', {
+          className: baseCss.buttonMini,
+          disabled: active <= 0,
+          onClick: () => scrollTo(active - 1),
+          title: '上一个块 (↑)',
+        }, '↑ 上一块'),
+        activeHunk !== undefined && activeApplied && !isEditingActive && onEditHunk !== undefined
+          ? createElement('button', { className: baseCss.buttonMini, onClick: () => startEdit(active) }, '编辑')
+          : null,
+        activeHunk !== undefined && !isEditingActive
+          ? (activeApplied
+            ? createElement('button', { className: baseCss.buttonMini, onClick: () => runOp(active, () => onHunk(active, true)) }, '撤销该块')
+            : createElement('button', { className: baseCss.buttonMini, onClick: () => runOp(active, () => onHunk(active, false)) }, '应用该块'))
+          : null,
+        createElement('button', {
+          className: baseCss.buttonMini,
+          disabled: active >= hunks.length - 1,
+          onClick: () => scrollTo(active + 1),
+          title: '下一个块 (↓)',
+        }, '↓ 下一块'),
+      ),
+    ),
     hunks.map(hunk => {
       const isApplied = applied[hunk.index] ?? true
       const isActive = active === hunk.index
@@ -481,38 +517,11 @@ function HunkedView(props: {
       return createElement('div', {
         key: hunk.index,
         ref: (el: HTMLDivElement | null): void => { refs.current[hunk.index] = el },
-        className: [
-          isApplied ? css.hunk : `${css.hunk} ${css.hunkReverted}`,
-          isActive ? css.hunkActive : null,
-        ].filter(Boolean).join(' '),
+        className: isActive ? `${css.hunkFlow} ${css.hunkFlowActive}` : css.hunkFlow,
       },
-      createElement('div', { className: css.hunkHeader },
-        createElement('span', { className: css.hunkTitle }, `块 ${hunk.index + 1} · -${hunk.beforeLines.length} +${displayLines.length}`),
-        createElement('span', { className: isApplied ? css.hunkAppliedTag : css.hunkRevertedTag },
-          isApplied ? '已应用' : '已撤销'),
-        createElement('div', { className: css.hunkActions },
-          // 块内编辑:仅已应用块可编辑(编辑即应用该块)。
-          isApplied && !isEditing && onEditHunk !== undefined
-            ? createElement('button', { className: baseCss.buttonMini, onClick: () => startEdit(hunk.index) }, '编辑')
-            : null,
-          isApplied
-            ? createElement('button', { className: baseCss.buttonMini, onClick: () => runOp(hunk.index, () => onHunk(hunk.index, true)) }, '撤销该块')
-            : createElement('button', { className: baseCss.buttonMini, onClick: () => runOp(hunk.index, () => onHunk(hunk.index, false)) }, '应用该块'),
-        ),
-      ),
-      createElement('div', { className: css.hunkNav },
-        createElement('button', {
-          className: css.hunkNavBtn,
-          disabled: hunk.index === 0,
-          onClick: () => scrollTo(hunk.index - 1),
-          title: '上一个块 (↑)',
-        }, '↑'),
-        createElement('button', {
-          className: css.hunkNavBtn,
-          disabled: hunk.index === hunks.length - 1,
-          onClick: () => scrollTo(hunk.index + 1),
-          title: '下一个块 (↓)',
-        }, '↓'),
+      // 块分隔线(无框):块号 + 行数。
+      createElement('div', { className: css.hunkDivider },
+        createElement('span', null, `块 ${hunk.index + 1} · -${hunk.beforeLines.length} +${displayLines.length}`),
       ),
       isEditing
         ? createElement('div', { className: css.hunkEditArea },

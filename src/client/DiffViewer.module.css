@@ -541,100 +541,81 @@
   font-size: var(--dsw-font-xxs-12);
 }
 
-/* Qoder 风格 hunk 块视图 */
-.hunkList {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-/* 操作提示:第一次看到块级视图时说明可用操作 */
-.hunkHint {
-  padding: 4px 8px;
-  border-radius: 6px;
-  background: var(--dsw-alias-bg-layer-3);
-  color: var(--dsw-alias-label-tertiary);
-  font-size: var(--dsw-font-xxxs-11);
-}
-
-.hunk {
+/* Qoder 风格 hunk 块视图:滚动容器 + 跟随滑动的操作面板(无框风格) */
+.hunkScroll {
   position: relative;
-  border: 1px solid var(--dsw-alias-border-l2);
+  max-height: 60vh;
+  overflow: auto;
+  border: 1px solid var(--dsw-alias-border-l1);
   border-radius: 8px;
-  overflow: hidden;
+  background: var(--dsw-alias-bg-layer-1);
 }
 
-.hunkReverted {
-  border-style: dashed;
-  opacity: 0.85;
-}
-
-.hunkHeader {
+/* 跟随滑动的操作面板:滚动时始终钉在顶部,操作当前块 */
+.hunkOpPanel {
+  position: sticky;
+  top: 0;
+  z-index: 5;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 4px 8px;
-  background: var(--dsw-alias-bg-layer-3);
+  gap: 10px;
+  padding: 6px 10px;
+  background: var(--dsw-alias-bg-layer-2);
   border-bottom: 1px solid var(--dsw-alias-border-l1);
-  font-size: var(--dsw-font-xxxs-11);
+  box-shadow: var(--dsw-shadow-lv1);
 }
 
-.hunkTitle {
-  font-variant-numeric: tabular-nums;
+.hunkOpTitle {
+  font-size: var(--dsw-font-xxs-12);
   font-weight: 600;
-  color: var(--dsw-alias-label-secondary);
+  color: var(--dsw-alias-label-primary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.hunkOpActions {
+  margin-left: auto;
+  display: inline-flex;
+  gap: 6px;
+  flex: none;
 }
 
 .hunkAppliedTag {
   color: var(--dsw-alias-state-success-primary);
+  font-size: var(--dsw-font-xxxs-11);
 }
 
 .hunkRevertedTag {
   color: var(--dsw-alias-label-tertiary);
+  font-size: var(--dsw-font-xxxs-11);
 }
 
-.hunkActions {
-  margin-left: auto;
-  display: inline-flex;
-  gap: 4px;
+/* 流式块:无框,分隔线 + 行;激活块左侧强调条 */
+.hunkFlow {
+  position: relative;
 }
 
-/* 激活块:跳转目标高亮 */
-.hunkActive {
-  outline: 2px solid var(--dsw-alias-brand-primary);
-  outline-offset: 0;
+.hunkFlowActive {
+  box-shadow: inset 3px 0 0 var(--dsw-alias-brand-primary);
 }
 
-/* 上/下箭头:自由跳转相邻块 */
-.hunkNav {
-  position: absolute;
-  right: 8px;
-  top: 34px;
-  display: inline-flex;
-  gap: 2px;
+/* 块分隔线:块号 + 行数(非卡片头) */
+.hunkDivider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 10px;
+  font-size: var(--dsw-font-xxxs-11);
+  font-weight: 600;
+  color: var(--dsw-alias-label-tertiary);
+  background: var(--dsw-alias-bg-layer-3);
 }
 
-.hunkNavBtn {
-  width: 20px;
-  height: 20px;
-  line-height: 1;
-  padding: 0;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 4px;
-  background: var(--dsw-alias-bg-layer-2);
-  color: var(--dsw-alias-label-secondary);
-  font-size: var(--dsw-font-xxs-12);
-  cursor: pointer;
-}
-
-.hunkNavBtn:hover:not(:disabled) {
-  border-color: var(--dsw-alias-brand-primary);
-  color: var(--dsw-alias-brand-primary);
-}
-
-.hunkNavBtn:disabled {
-  opacity: 0.35;
-  cursor: default;
+.hunkDivider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--dsw-alias-border-l1);
 }
 
 /* 块内编辑区:Qoder 风格 —— 直接改该块内容 */
