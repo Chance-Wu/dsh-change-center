@@ -544,19 +544,6 @@
 .noteWarn { color: var(--dsw-alias-state-warn-primary); font-size: 8px; }
 .noteInfo { color: var(--dsw-alias-label-tertiary); font-size: 8px; }
 
-/* 大文件折叠 */
-.diffLarge {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  border: 1px dashed var(--dsw-alias-border-l2);
-  border-radius: 8px;
-  padding: 14px;
-  color: var(--dsw-alias-label-tertiary);
-  font-size: var(--dsw-font-xxs-12);
-}
-
 /* Qoder 风格 hunk 块视图:滚动容器 + 跟随当前块的操作面板(无框风格) */
 .hunkScroll {
   position: relative;
@@ -567,9 +554,12 @@
   background: var(--dsw-alias-bg-layer-1);
 }
 
-/* 跟随当前块的操作面板:浮动卡片,随块滑动(不再 sticky 钉在顶部,
-   第一个块也不会像固定页头);块切换时淡入下移。 */
+/* 操作面板:sticky 于滚动区顶部 —— 跟随滑动始终可见,操作当前块;
+   浮动卡片样式 + 出现动效。 */
 .hunkOpPanel {
+  position: sticky;
+  top: 0;
+  z-index: 5;
   display: flex;
   align-items: center;
   gap: 10px;

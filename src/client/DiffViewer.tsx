@@ -93,13 +93,7 @@ export function DiffViewer(props: DiffViewerProps): ReactElement {
     () => props.review !== undefined && props.review !== null ? buildExplanation(change, props.review, props.changes ?? []) : null,
     [change, props.review, props.changes],
   )
-  // 5.x 大文件折叠:>500 行先折叠,「展开全部」渐进加载。
-  const [diffExpanded, setDiffExpanded] = useState(false)
-  // 折叠阈值看渲染体积(含未修改的上下文行,避免大文件全量渲染)。
-  const totalDiffLines = useMemo(() => diffTextLines(change.diff).length, [change.diff])
-  // 展示数 = 实际变更行(增 + 删),而不是 diff 全文行数(含上下文,约等于文件行数)。
-  const changedCount = counts.additions + counts.deletions
-  const LARGE_DIFF_LINES = 500
+  // 默认展开:diff 不折叠(不再按行数阈值先收起)。
 
   // 保存反馈:乐观提示「✓ 已保存」1.5 秒(失败由面板错误区呈现)。
   const [justSaved, setJustSaved] = useState(false)
@@ -170,12 +164,7 @@ export function DiffViewer(props: DiffViewerProps): ReactElement {
         }, `${diffOpen ? '▾' : '▸'} ${diffOpen ? '收起' : '展开'}代码 Diff`)
         : null,
       (diffOpen || props.review === undefined || props.review === null) && (
-        totalDiffLines > LARGE_DIFF_LINES && !diffExpanded
-          ? createElement('div', { className: css.diffLarge },
-            createElement('span', null, `共 ${changedCount} 行变更`),
-            createElement('button', { onClick: () => setDiffExpanded(true), className: baseCss.buttonGhost }, '展开全部'),
-          )
-          : mode === 'unified'
+        mode === 'unified'
             ? (hunks.length > 0 && props.onHunk !== undefined && !readOnly
               ? createElement(HunkedView, { hunks, applied, edits: hunkEdits, onHunk: props.onHunk, onEditHunk: props.onEditHunk, layout: 'unified' })
               : createElement(UnifiedView, { change, findings: explanation?.findings ?? [] }))
@@ -406,6 +395,8 @@ function HunkedView(props: {
   const [editing, setEditing] = useState<number | null>(null)
   const [draft, setDraft] = useState('')
   const refs = useRef<(HTMLDivElement | null)[]>([])
+  const scrollRef = useRef<HTMLDivElement | null>(null)
+  const panelRef = useRef<HTMLDivElement | null>(null)
 
   // 每个块在 after 文件中的起始行号:beforeStart + 前面所有块的净增量
   // (afterLines − beforeLines)。插入行号 = afterStart + i,与并排/统一一致。
@@ -424,13 +415,38 @@ function HunkedView(props: {
     if (active >= hunks.length) setActive(Math.max(0, hunks.length - 1))
   }, [hunks.length, active])
 
+  /** 操作面板高度(测量),滚动定位与「可视区顶部块」判定都用它。 */
+  const panelHeight = (): number => panelRef.current?.offsetHeight ?? 38
+
+  /** 滚动容器内把某块定位到操作面板正下方,并设为当前块。 */
   const scrollTo = (index: number): void => {
     if (index < 0 || index >= hunks.length) return
     setActive(index)
-    refs.current[index]?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    const container = scrollRef.current
+    const el = refs.current[index]
+    if (container !== null && el !== null) {
+      // 先把容器带进视野(仅当容器部分不可见时滚动页面),再在容器内对齐。
+      container.scrollIntoView({ block: 'nearest' })
+      container.scrollTop = Math.max(0, el.offsetTop - panelHeight())
+    }
   }
   const next = (): void => scrollTo(active + 1)
   const prev = (): void => scrollTo(active - 1)
+
+  /** 跟随滑动:手动滚动时自动激活「面板下方」的块,面板内容随之更新。 */
+  const onScroll = (): void => {
+    const container = scrollRef.current
+    if (container === null) return
+    const threshold = panelHeight() + 8
+    let best = 0
+    for (let i = 0; i < hunks.length; i++) {
+      const el = refs.current[i]
+      if (el === null) continue
+      if (el.offsetTop - container.scrollTop <= threshold) best = i
+      else break
+    }
+    if (best !== active) setActive(best)
+  }
 
   // 操作成功后自动跳到下一个块;失败停留在当前块。
   const finish = (ok: boolean, index: number): void => {
@@ -472,13 +488,14 @@ function HunkedView(props: {
     return () => window.removeEventListener('keydown', onKey)
   })
 
-  // 操作面板:跟随当前块 —— 渲染在激活块内部,随块滑动(sticky 于滚动区顶部);
-  // 只有激活块带面板,块之间不再有零散按钮。
+  // 操作面板:sticky 于滚动区顶部 —— 跟随滑动始终可见,操作当前块;
+  // 滚动时 onScroll 自动激活面板下方的块,面板内容随之更新。
   const renderOpPanel = (index: number): ReactElement => {
     const isApplied = applied[index] ?? true
     const isEditing = editing === index
     return createElement('div', {
       className: css.hunkOpPanel,
+      ref: panelRef,
       onClick: (event: { stopPropagation: () => void }) => event.stopPropagation(),
     },
     createElement('span', { className: css.hunkOpTitle }, `${index + 1} / ${hunks.length}`),
@@ -509,7 +526,8 @@ function HunkedView(props: {
     )
   }
 
-  return createElement('div', { className: css.hunkScroll },
+  return createElement('div', { className: css.hunkScroll, ref: scrollRef, onScroll },
+    renderOpPanel(active),
     layout === 'side-by-side'
       ? createElement('div', { className: css.hunkSideHeader },
         createElement('div', { className: css.sideColHeader }, '修改前'),
@@ -525,11 +543,9 @@ function HunkedView(props: {
         key: hunk.index,
         ref: (el: HTMLDivElement | null): void => { refs.current[hunk.index] = el },
         className: isActive ? `${css.hunkFlow} ${css.hunkFlowActive}` : css.hunkFlow,
-        // 点击任意块 = 设为当前块(操作面板随之移动到该块)。
-        onClick: () => setActive(hunk.index),
+        // 点击任意块 = 设为当前块(滚动定位到面板下方)。
+        onClick: () => scrollTo(hunk.index),
       },
-      // 操作面板跟随当前块(仅激活块渲染,随块滑动)。
-      isActive ? renderOpPanel(hunk.index) : null,
       // 块间细分割线(无文字,避免视觉噪音)。
       createElement('div', { className: css.hunkDivider }),
       isEditing
