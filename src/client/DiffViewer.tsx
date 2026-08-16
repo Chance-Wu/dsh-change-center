@@ -469,44 +469,44 @@ function HunkedView(props: {
     return () => window.removeEventListener('keydown', onKey)
   })
 
-  const activeHunk = active < hunks.length ? hunks[active] : undefined
-  const activeApplied = activeHunk !== undefined ? (applied[activeHunk.index] ?? true) : false
-  const isEditingActive = editing === active
+  // 操作面板:跟随当前块 —— 渲染在激活块内部,随块滑动(sticky 于滚动区顶部);
+  // 只有激活块带面板,块之间不再有零散按钮。
+  const renderOpPanel = (index: number): ReactElement => {
+    const isApplied = applied[index] ?? true
+    const isEditing = editing === index
+    return createElement('div', {
+      className: css.hunkOpPanel,
+      onClick: (event: { stopPropagation: () => void }) => event.stopPropagation(),
+    },
+    createElement('span', { className: css.hunkOpTitle }, `${index + 1} / ${hunks.length}`),
+    createElement('span', { className: isApplied ? css.hunkAppliedTag : css.hunkRevertedTag },
+      isApplied ? '已应用' : '已撤销'),
+    createElement('div', { className: css.hunkOpActions },
+      createElement('button', {
+        className: baseCss.buttonMini,
+        disabled: index <= 0,
+        onClick: () => scrollTo(index - 1),
+        title: '上一个块 (↑)',
+      }, '↑ 上一块'),
+      isApplied && !isEditing && onEditHunk !== undefined
+        ? createElement('button', { className: baseCss.buttonMini, onClick: () => startEdit(index) }, '编辑')
+        : null,
+      !isEditing
+        ? (isApplied
+          ? createElement('button', { className: baseCss.buttonMini, onClick: () => runOp(index, () => onHunk(index, true)) }, '撤销该块')
+          : createElement('button', { className: baseCss.buttonMini, onClick: () => runOp(index, () => onHunk(index, false)) }, '应用该块'))
+        : null,
+      createElement('button', {
+        className: baseCss.buttonMini,
+        disabled: index >= hunks.length - 1,
+        onClick: () => scrollTo(index + 1),
+        title: '下一个块 (↓)',
+      }, '↓ 下一块'),
+    ),
+    )
+  }
 
   return createElement('div', { className: css.hunkScroll },
-    // 跟随滑动的操作面板:始终可见,操作当前块(无框风格,块不各自带按钮)。
-    createElement('div', { className: css.hunkOpPanel },
-      createElement('span', { className: css.hunkOpTitle },
-        activeHunk !== undefined
-          ? `${activeHunk.index + 1} / ${hunks.length}`
-          : `0 / ${hunks.length}`),
-      activeHunk !== undefined
-        ? createElement('span', { className: activeApplied ? css.hunkAppliedTag : css.hunkRevertedTag },
-          activeApplied ? '已应用' : '已撤销')
-        : null,
-      createElement('div', { className: css.hunkOpActions },
-        createElement('button', {
-          className: baseCss.buttonMini,
-          disabled: active <= 0,
-          onClick: () => scrollTo(active - 1),
-          title: '上一个块 (↑)',
-        }, '↑ 上一块'),
-        activeHunk !== undefined && activeApplied && !isEditingActive && onEditHunk !== undefined
-          ? createElement('button', { className: baseCss.buttonMini, onClick: () => startEdit(active) }, '编辑')
-          : null,
-        activeHunk !== undefined && !isEditingActive
-          ? (activeApplied
-            ? createElement('button', { className: baseCss.buttonMini, onClick: () => runOp(active, () => onHunk(active, true)) }, '撤销该块')
-            : createElement('button', { className: baseCss.buttonMini, onClick: () => runOp(active, () => onHunk(active, false)) }, '应用该块'))
-          : null,
-        createElement('button', {
-          className: baseCss.buttonMini,
-          disabled: active >= hunks.length - 1,
-          onClick: () => scrollTo(active + 1),
-          title: '下一个块 (↓)',
-        }, '↓ 下一块'),
-      ),
-    ),
     layout === 'side-by-side'
       ? createElement('div', { className: css.hunkSideHeader },
         createElement('div', { className: css.sideColHeader }, '修改前'),
@@ -522,7 +522,11 @@ function HunkedView(props: {
         key: hunk.index,
         ref: (el: HTMLDivElement | null): void => { refs.current[hunk.index] = el },
         className: isActive ? `${css.hunkFlow} ${css.hunkFlowActive}` : css.hunkFlow,
+        // 点击任意块 = 设为当前块(操作面板随之移动到该块)。
+        onClick: () => setActive(hunk.index),
       },
+      // 操作面板跟随当前块(仅激活块渲染,随块滑动)。
+      isActive ? renderOpPanel(hunk.index) : null,
       // 块间细分割线(无文字,避免视觉噪音)。
       createElement('div', { className: css.hunkDivider }),
       isEditing

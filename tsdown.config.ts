@@ -71,7 +71,26 @@ const config: UserConfig = {
         minify: true,
       })
       const classMap: Record<string, string> = {}
-      for (const [local, exp] of Object.entries(cssExports ?? {})) classMap[local] = exp.name
+      // CSS Modules `composes`:lightningcss 只把组合关系放进 export 元数据,
+      // 不会把被组合类的规则内联。className 必须带上全部(传递)组合类,
+      // 否则 composes 静默失效(例如 diffRowAdded 丢失 display:flex)。
+      type CssModuleExport = { name: string; composes?: { type: string; name: string }[] }
+      const exportsByHash = new Map<string, CssModuleExport>()
+      for (const exp of Object.values(cssExports ?? {}) as CssModuleExport[]) exportsByHash.set(exp.name, exp)
+      for (const [local, exp] of Object.entries(cssExports ?? {}) as [string, CssModuleExport][]) {
+        const names: string[] = []
+        const seen = new Set<string>()
+        const stack: string[] = [exp.name]
+        while (stack.length > 0) {
+          const hashed = stack.pop()!
+          if (seen.has(hashed)) continue
+          seen.add(hashed)
+          names.push(hashed)
+          const entry = exportsByHash.get(hashed)
+          if (entry !== undefined) for (const dep of entry.composes ?? []) stack.push(dep.name)
+        }
+        classMap[local] = names.join(' ')
+      }
       // One <style data-plugin> per module file; idempotent under re-evaluation.
       return [
         `const css = ${JSON.stringify(code.toString())};`,
