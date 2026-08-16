@@ -22,6 +22,8 @@ export interface ReviewBarProps {
   /** 5.x 文件导航:上一个 / 下一个变更。 */
   onPrev?: () => void
   onNext?: () => void
+  /** 操作成功(应用/回滚)后的反馈钩子 —— 父级据此给 toast(应用带撤销)。 */
+  onApplied?: (operation: 'apply' | 'rollback') => void
 }
 
 /** 状态 → 徽标样式类(共用;按 V-8:applied=成功主态、failed=突出、rolled_back=弱化)。 */
@@ -37,7 +39,7 @@ function statusClass(status: string): string {
 
 /** Per-change review controls. */
 export function ReviewBar(props: ReviewBarProps): ReactElement {
-  const { change, api, onAction, onError, disabled = false, onPrev, onNext } = props
+  const { change, api, onAction, onError, disabled = false, onPrev, onNext, onApplied } = props
   const [conflict, setConflict] = useState<ActionResult | null>(null)
   // 3.3:策略 deny 是真正的 Guard —— 给「仍然应用(force)」路径。
   const [deny, setDeny] = useState<{ message: string } | null>(null)
@@ -59,7 +61,7 @@ export function ReviewBar(props: ReviewBarProps): ReactElement {
       .catch(() => setCurrent({ exists: false, content: null }))
   }
 
-  const run = async (action: () => Promise<unknown>, allowConflict = false): Promise<void> => {
+  const run = async (action: () => Promise<unknown>, operation?: 'apply' | 'rollback'): Promise<void> => {
     setBusy(true)
     setConflict(null)
     setDeny(null)
@@ -82,6 +84,7 @@ export function ReviewBar(props: ReviewBarProps): ReactElement {
         onError(message || '操作失败')
       } else {
         onAction()
+        if (operation !== undefined) onApplied?.(operation)
       }
     } catch (error) {
       onError(error instanceof Error ? error.message : String(error))
@@ -121,7 +124,7 @@ export function ReviewBar(props: ReviewBarProps): ReactElement {
       createElement('div', { className: css.actions },
         actions.canApply
           ? createElement('button', {
-            onClick: () => run(() => api.applyChange(change.id)),
+            onClick: () => run(() => api.applyChange(change.id), 'apply'),
             disabled: inert,
             className: baseCss.buttonPrimary,
             title: '文件已由 agent 写入磁盘;此操作做冲突/策略检查并登记,之后可回滚',
@@ -129,7 +132,7 @@ export function ReviewBar(props: ReviewBarProps): ReactElement {
           : null,
         actions.canRetryApply
           ? createElement('button', {
-            onClick: () => run(() => api.applyChange(change.id)),
+            onClick: () => run(() => api.applyChange(change.id), 'apply'),
             disabled: inert,
             className: baseCss.buttonPrimary,
             title: '上次应用失败;重试做冲突/策略检查后登记',
@@ -137,14 +140,14 @@ export function ReviewBar(props: ReviewBarProps): ReactElement {
           : null,
         actions.canRollback
           ? createElement('button', {
-            onClick: () => run(() => api.changeAction(change.id, 'rollback')),
+            onClick: () => run(() => api.changeAction(change.id, 'rollback'), 'rollback'),
             disabled: inert,
             className: baseCss.buttonGhost,
           }, '回滚')
           : null,
         actions.canReapply
           ? createElement('button', {
-            onClick: () => run(() => api.applyChange(change.id)),
+            onClick: () => run(() => api.applyChange(change.id), 'apply'),
             disabled: inert,
             className: baseCss.buttonPrimary,
             title: '回滚后再应用,恢复为修改后的内容并登记',
@@ -173,7 +176,7 @@ export function ReviewBar(props: ReviewBarProps): ReactElement {
             className: baseCss.buttonGhost,
           }, '查看差异'),
           createElement('button', {
-            onClick: () => run(() => api.applyChange(change.id, true)),
+            onClick: () => run(() => api.applyChange(change.id, true), 'apply'),
             className: baseCss.buttonPrimary,
           }, '强制应用'),
         ),
@@ -203,7 +206,7 @@ export function ReviewBar(props: ReviewBarProps): ReactElement {
         createElement('div', { className: css.conflictActions },
           merging
             ? createElement('button', {
-              onClick: () => run(() => api.resolveChange(change.id, mergedDraft)),
+              onClick: () => run(() => api.resolveChange(change.id, mergedDraft), 'apply'),
               className: baseCss.buttonPrimary,
             }, '应用合并')
             : createElement('button', {
@@ -211,7 +214,7 @@ export function ReviewBar(props: ReviewBarProps): ReactElement {
               className: baseCss.buttonGhost,
             }, '合并'),
           createElement('button', {
-            onClick: () => run(() => api.applyChange(change.id, true)),
+            onClick: () => run(() => api.applyChange(change.id, true), 'apply'),
             className: baseCss.buttonPrimary,
           }, '采用Agent'),
         ),
@@ -229,7 +232,7 @@ export function ReviewBar(props: ReviewBarProps): ReactElement {
             className: baseCss.buttonGhost,
           }, '关闭'),
           createElement('button', {
-            onClick: () => run(() => api.applyChange(change.id, true)),
+            onClick: () => run(() => api.applyChange(change.id, true), 'apply'),
             className: baseCss.buttonPrimary,
           }, '仍然应用'),
         ),

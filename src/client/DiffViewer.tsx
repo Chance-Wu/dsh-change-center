@@ -514,17 +514,19 @@ function HunkedView(props: {
   }
 
   // 全页监听 ↑/↓:不在输入框内时自由跳转(操作完自动跳块之外的可选导航)。
+  // capture + stopImmediatePropagation:块导航优先于面板级 J/K/↑↓ 文件导航 ——
+  // 否则按 ↓ 会同时「跳下一块」与「切到下一个文件」(ChangeReviewPanel 也监听箭头键)。
   useEffect(() => {
     if (typeof window === 'undefined') return
     const onKey = (event: KeyboardEvent): void => {
       const target = event.target as HTMLElement | null
       if (target !== null && (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT' || target.isContentEditable)) return
       if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
-      if (event.key === 'ArrowDown') { event.preventDefault(); next() }
-      else if (event.key === 'ArrowUp') { event.preventDefault(); prev() }
+      if (event.key === 'ArrowDown') { event.preventDefault(); event.stopImmediatePropagation(); next() }
+      else if (event.key === 'ArrowUp') { event.preventDefault(); event.stopImmediatePropagation(); prev() }
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
   })
 
   // 操作面板:绝对定位,贴在激活块开始行的右上侧,随滑动跟随(updatePanelPosition)。

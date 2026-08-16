@@ -311,8 +311,10 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
     onEditorDirtyChange?.(editorDirty)
   }, [editorDirty])
 
-  // 面板锁:批量进行中 / 结果展示期间 / 编辑器有未保存修改,单条入口全部禁用。
-  const panelLocked = busy || toast !== null || warnState !== null || editorDirty
+  // 面板锁:批量进行中 / 风险轻确认未决 / 编辑器有未保存修改,单条入口全部禁用。
+  // 注意:toast 只是反馈(单文件应用/块操作后弹「✓ 已应用」),不参与锁定 ——
+  // 否则应用一个文件后 6 秒内所有按钮置灰,无法连续处理。批量进行中由 busy 保护。
+  const panelLocked = busy || warnState !== null || editorDirty
 
   // P-3 键盘快捷键(仅高频动作;输入框/编辑器聚焦时全部短路)。
   // 只读面没有操作,快捷键整体关闭。
@@ -330,7 +332,7 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
       if (mod && event.key === 'Enter') {
         event.preventDefault()
         if (change !== null && !panelLocked && actionsFor(change.status).canApply) {
-          void api.applyChange(change.id).then(afterAction).catch(err => setError(err instanceof Error ? err.message : String(err)))
+          quickApply(change.id)
         }
         return
       }
@@ -353,7 +355,7 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
         case 'm': setMoreOpen(true); return
         case 'a':
           if (change !== null && !panelLocked && actionsFor(change.status).canApply) {
-            void api.applyChange(change.id).then(afterAction).catch(err => setError(err instanceof Error ? err.message : String(err)))
+            quickApply(change.id)
           }
           return
         case 'u':
@@ -396,10 +398,13 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
     }
   }
 
-  /** Tree quick actions + the review bar share one action path. */
+  /** Tree quick actions + the review bar + undo share one action path. */
   const quickAction = (id: string, action: 'rollback'): void => {
     api.changeAction(id, action)
-      .then(afterAction)
+      .then(() => {
+        afterAction()
+        setToast({ text: '↶ 已回滚', kind: 'ok' })
+      })
       .catch(err => setError(err instanceof Error ? err.message : String(err)))
   }
 
@@ -943,6 +948,14 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
               disabled: panelLocked,
               onPrev: () => navigateChange(-1),
               onNext: () => navigateChange(1),
+              // 应用成功即给撤销入口(与树行一致);回滚成功反馈状态变化。
+              onApplied: (operation) => {
+                if (operation === 'apply') {
+                  setToast({ text: '✓ 已应用', kind: 'ok', undo: () => quickAction(change.id, 'rollback') })
+                } else {
+                  setToast({ text: '↶ 已回滚', kind: 'ok' })
+                }
+              },
             }),
           ),
       ),
