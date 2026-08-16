@@ -415,8 +415,14 @@ function HunkedView(props: {
     if (active >= hunks.length) setActive(Math.max(0, hunks.length - 1))
   }, [hunks.length, active])
 
-  /** 操作面板高度(测量),滚动定位与「可视区顶部块」判定都用它。 */
+  /** 操作面板顶部在容器内的占位:sticky top 8px + 面板 margin-top 6px。 */
+  const PANEL_OFFSET = 14
+
+  /** 操作面板高度(测量)。 */
   const panelHeight = (): number => panelRef.current?.offsetHeight ?? 38
+
+  /** 面板占用的纵向空间(顶部偏移 + 高度)——块定位到面板正下方的基准。 */
+  const panelSpace = (): number => PANEL_OFFSET + (panelRef.current?.offsetHeight ?? 38)
 
   /** 滚动容器内把某块定位到操作面板正下方,并设为当前块。 */
   const scrollTo = (index: number): void => {
@@ -425,26 +431,30 @@ function HunkedView(props: {
     const container = scrollRef.current
     const el = refs.current[index]
     if (container !== null && el !== null) {
-      // 先把容器带进视野(仅当容器部分不可见时滚动页面),再在容器内对齐。
+      // 先把容器带进视野(仅当容器部分不可见时滚动页面),再在容器内对齐到面板下方。
       container.scrollIntoView({ block: 'nearest' })
-      container.scrollTop = Math.max(0, el.offsetTop - panelHeight())
+      container.scrollTop = Math.max(0, el.offsetTop - panelSpace())
     }
   }
   const next = (): void => scrollTo(active + 1)
   const prev = (): void => scrollTo(active - 1)
 
-  /** 跟随滑动:手动滚动时自动激活「面板下方」的块,面板内容随之更新。 */
+  /** 跟随滑动:自动激活「面板正下方」的块;滚动到底部时选中最后一块。 */
   const onScroll = (): void => {
     const container = scrollRef.current
     if (container === null) return
-    const threshold = panelHeight() + 8
+    const space = panelSpace()
+    const scrollable = container.scrollHeight > container.clientHeight + 2
+    const atBottom = scrollable && container.scrollTop + container.clientHeight >= container.scrollHeight - 2
     let best = 0
     for (let i = 0; i < hunks.length; i++) {
       const el = refs.current[i]
       if (el === null) continue
-      if (el.offsetTop - container.scrollTop <= threshold) best = i
+      if (el.offsetTop - container.scrollTop <= space + 8) best = i
       else break
     }
+    // 底部特例:最后一小块可能顶边在面板下方,永远轮不到它被选中。
+    if (atBottom) best = hunks.length - 1
     if (best !== active) setActive(best)
   }
 
@@ -546,6 +556,12 @@ function HunkedView(props: {
         // 点击任意块 = 设为当前块(滚动定位到面板下方)。
         onClick: () => scrollTo(hunk.index),
       },
+      // 行号区间标记(Git 风格 `-起,数 +起,数`):定位明确,替换行数字不再显得重复。
+      createElement('div', { className: css.hunkDivider },
+        createElement('span', { className: css.hunkRange },
+          `-${hunk.beforeStart}${hunk.beforeLines.length > 1 ? `,${hunk.beforeLines.length}` : ''} ` +
+          `+${afterStarts[hunk.index]}${displayLines.length > 1 ? `,${displayLines.length}` : ''}`),
+      ),
       isEditing
         ? createElement('div', { className: css.hunkEditArea },
           createElement('textarea', {

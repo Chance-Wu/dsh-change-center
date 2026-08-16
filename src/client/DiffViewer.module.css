@@ -627,7 +627,7 @@
   cursor: default;
 }
 
-/* 流式块:无框;块之间用空行分隔(不再画细线) */
+/* 流式块:无框;块之间用空行分隔;激活块左侧强调条 + 底色(带过渡) */
 .hunkFlow {
   position: relative;
   margin-bottom: 18px;
@@ -640,7 +640,29 @@
 
 .hunkFlowActive {
   box-shadow: inset 3px 0 0 var(--dsw-alias-brand-primary);
-  background: color-mix(in srgb, var(--dsw-alias-brand-primary) 4%, transparent);
+  background: color-mix(in srgb, var(--dsw-alias-brand-primary) 7%, transparent);
+}
+
+/* 块首行号区间标记(Git 风格 `-起,数 +起,数`)+ 细线分隔 */
+.hunkDivider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 10px 6px;
+}
+
+.hunkRange {
+  font-size: var(--dsw-font-xxxs-11);
+  font-variant-numeric: tabular-nums;
+  color: var(--dsw-alias-label-tertiary);
+  white-space: nowrap;
+}
+
+.hunkDivider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--dsw-alias-border-l1);
 }
 
 /* 块内编辑区:Qoder 风格 —— 直接改该块内容 */
