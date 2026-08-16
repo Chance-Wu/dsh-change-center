@@ -137,7 +137,8 @@ export function DiffViewer(props: DiffViewerProps): ReactElement {
       ),
       createElement('div', { className: css.modeTabs },
         modeTab('聚焦', mode === 'focus', () => onModeChange('focus')),
-        modeTab('统一', mode === 'unified', () => onModeChange('unified')),
+        // 有块级操作能力时,「统一」模式承载逐块 编辑/应用/撤销,标签加「块」标记。
+        modeTab(hunks.length > 0 && props.onHunk !== undefined && !readOnly ? '统一·块' : '统一', mode === 'unified', () => onModeChange('unified')),
         modeTab('并排', mode === 'side-by-side', () => onModeChange('side-by-side')),
         // 只读面不提供编辑操作。
         readOnly ? null : modeTab('编辑', mode === 'editor', () => onModeChange('editor')),
@@ -466,6 +467,8 @@ function HunkedView(props: {
   })
 
   return createElement('div', { className: css.hunkList },
+    createElement('div', { className: css.hunkHint },
+      '逐块操作:每个块可 编辑 / 应用 / 撤销,操作后自动跳到下一块;↑ ↓ 或键盘上下箭头自由跳转'),
     hunks.map(hunk => {
       const isApplied = applied[hunk.index] ?? true
       const isActive = active === hunk.index

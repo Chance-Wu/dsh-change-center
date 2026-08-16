@@ -509,6 +509,15 @@
   gap: 6px;
 }
 
+/* 操作提示:第一次看到块级视图时说明可用操作 */
+.hunkHint {
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-layer-3);
+  color: var(--dsw-alias-label-tertiary);
+  font-size: var(--dsw-font-xxxs-11);
+}
+
 .hunk {
   position: relative;
   border: 1px solid var(--dsw-alias-border-l2);

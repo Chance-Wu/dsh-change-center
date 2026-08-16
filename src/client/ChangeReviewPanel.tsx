@@ -120,8 +120,9 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
   const [changes, setChanges] = useState<WireChange[]>([])
   const [treeLoading, setTreeLoading] = useState(true)
   const [selectedChange, setSelectedChange] = useState<string | null>(null)
-  // 默认并排(完整双栏,直观展示改动);聚焦/统一/编辑为可选视图。
-  const [diffMode, setDiffMode] = useState<DiffMode>('side-by-side')
+  // Qoder 块级操作默认可见:交互面默认进入「统一」模式(逐块 编辑/应用/撤销),
+  // 只读面保持并排(记录/历史无操作)。
+  const [diffMode, setDiffMode] = useState<DiffMode>(readOnly ? 'side-by-side' : 'unified')
   const [mode, setMode] = useState<'focus' | 'review'>(defaultMode)
   const [moreOpen, setMoreOpen] = useState(false)
   const [filter, setFilter] = useState<ChangeFilter>('all')
