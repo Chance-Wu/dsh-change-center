@@ -59,8 +59,7 @@ describe('change-center store persistence', () => {
         sessionId: 'agent-1', cwd: '/tmp', kind: 'file', path: 'a.txt',
         operation: 'modify', before: 'x\n', after: 'y\n', source: 'agent', toolName: 'edit',
       })
-      // 无 approve/reject:apply 一次(无引擎 → failed)以验证状态持久化。
-      await ctx1.changeCenter.apply('change-1')
+      // 5.x:capture 即登记(applied)—— 验证状态持久化。
       // Let the fire-and-forget persist chains flush to disk.
       await waitFor(() => existsSync(join(root, 'change-center', 'store', 'changes.jsonl')))
 
@@ -70,7 +69,7 @@ describe('change-center store persistence', () => {
       const changes = ctx2.changeCenter.list()
       expect(changes).toHaveLength(1)
       expect(changes[0]?.path).toBe('a.txt')
-      expect(changes[0]?.status).toBe('failed')
+      expect(changes[0]?.status).toBe('applied')
 
       await waitFor(() => ctx2.changeSessions.list().length > 0)
       const sessions = ctx2.changeSessions.list()
@@ -89,7 +88,7 @@ describe('change-center store persistence', () => {
       sessionId: 'agent-2', cwd: '/tmp', kind: 'file', path: 'b.txt',
       operation: 'create', before: null, after: 'z\n', source: 'agent', toolName: 'write',
     })
-    expect(ctx.changeCenter.get(change.id)?.status).toBe('pending')
+    expect(ctx.changeCenter.get(change.id)?.status).toBe('applied')
     expect(ctx.changeSessions.list().length).toBeGreaterThan(0)
   })
 

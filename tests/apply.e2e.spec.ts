@@ -1,8 +1,7 @@
 /**
- * Phase-2 integration tests: real write tool → capture → apply (atomic
- * write-back) → rollback (snapshot restore), plus the external-mutation
- * conflict guard. Runs against a real ToolRuntime + local filesystem in a
- * temp directory.
+ * Phase-2 integration tests: real write tool → capture 即登记(applied + 快照)
+ * → 编辑保存(写盘)/回滚(快照恢复)/恢复,以及外部修改冲突守卫。Runs against
+ * a real ToolRuntime + local filesystem in a temp directory.
  * @module dsh-change-center/tests
  */
 
@@ -23,6 +22,7 @@ import { SessionService } from '../src/services/SessionService.ts'
 import { ApplyService } from '../src/services/ApplyService.ts'
 import { SnapshotService } from '../src/services/SnapshotService.ts'
 import { removeDirSafe } from './helpers/removeDir.ts'
+import { waitForSnapshot } from './helpers/waitSnapshot.ts'
 
 const testSignal = new AbortController().signal
 
@@ -77,8 +77,8 @@ function executeWrite(ctx: Context, args: unknown, agent: Agent) {
   })
 }
 
-describe('Apply Engine e2e', () => {
-  it('applies a change back to the workspace', async () => {
+describe('Capture → 写盘/回滚 e2e', () => {
+  it('capture 即登记:write 工具写盘后直接 applied,磁盘=after', async () => {
     const ctx = await setup()
     const agent = agentWithSession('apply-1')
     const target = join(tempDir, 'Service.java')
@@ -86,13 +86,12 @@ describe('Apply Engine e2e', () => {
 
     await executeWrite(ctx, { file_path: target, content: 'new service\n' }, agent)
     const change = ctx.changeCenter.list()[0]!
-    const result = await ctx.changeCenter.apply(change.id)
-    expect(result.kind).toBe('applied')
+    expect(change.status).toBe('applied')
+    expect(change.diskBaseline).toBe('new service\n')
     expect(readFileSync(target, 'utf8')).toBe('new service\n')
-    expect(ctx.changeCenter.get(change.id)?.status).toBe('applied')
   })
 
-  it('rolls an applied change back to its pre-apply content', async () => {
+  it('rolls an applied change back to its pre-apply content (无需先「应用」)', async () => {
     const ctx = await setup()
     const agent = agentWithSession('rollback-1')
     const target = join(tempDir, 'Rollback.java')
@@ -100,7 +99,7 @@ describe('Apply Engine e2e', () => {
 
     await executeWrite(ctx, { file_path: target, content: 'changed\n' }, agent)
     const change = ctx.changeCenter.list()[0]!
-    await ctx.changeCenter.apply(change.id)
+    await waitForSnapshot(change.sessionId, change.id)
     expect(readFileSync(target, 'utf8')).toBe('changed\n')
 
     const result = await ctx.changeCenter.rollback(change.id)
@@ -109,7 +108,7 @@ describe('Apply Engine e2e', () => {
     expect(ctx.changeCenter.get(change.id)?.status).toBe('rolled_back')
   })
 
-  it('detects an external modification before apply and refuses to overwrite', async () => {
+  it('detects an external modification before save and refuses to overwrite', async () => {
     const ctx = await setup()
     const agent = agentWithSession('conflict-1')
     const target = join(tempDir, 'Conflict.java')
@@ -118,36 +117,16 @@ describe('Apply Engine e2e', () => {
     await executeWrite(ctx, { file_path: target, content: 'after\n' }, agent)
     const change = ctx.changeCenter.list()[0]!
 
-    // External edit after capture, before apply.
+    // External edit after capture.
     writeFileSync(target, 'externally edited\n')
-    const result = await ctx.changeCenter.apply(change.id)
+    const result = await ctx.changeCenter.saveEdit(change.id, 'my edit\n')
     expect(result.kind).toBe('conflict')
-    // The external content is preserved.
+    // The external content is preserved; status stays applied (not failed).
     expect(readFileSync(target, 'utf8')).toBe('externally edited\n')
-    expect(ctx.changeCenter.get(change.id)?.status).toBe('failed')
+    expect(ctx.changeCenter.get(change.id)?.status).toBe('applied')
   })
 
-  it('retrying apply after a conflict returns conflict, not a transition error', async () => {
-    const ctx = await setup()
-    const agent = agentWithSession('retry-conflict-1')
-    const target = join(tempDir, 'RetryConflict.java')
-    writeFileSync(target, 'after\n')
-
-    await executeWrite(ctx, { file_path: target, content: 'after\n' }, agent)
-    const change = ctx.changeCenter.list()[0]!
-    // 外部修改后首次应用 → conflict → failed。
-    writeFileSync(target, 'externally edited\n')
-    const first = await ctx.changeCenter.apply(change.id)
-    expect(first.kind).toBe('conflict')
-    expect(ctx.changeCenter.get(change.id)?.status).toBe('failed')
-
-    // 重试:引擎仍冲突,但不应因 failed→failed 转移抛「非法转移」。
-    const retry = await ctx.changeCenter.apply(change.id)
-    expect(retry.kind).toBe('conflict')
-    expect(ctx.changeCenter.get(change.id)?.status).toBe('failed')
-  })
-
-  it('force-apply bypasses the external-mutation guard', async () => {
+  it('force-save bypasses the external-mutation guard', async () => {
     const ctx = await setup()
     const agent = agentWithSession('force-1')
     const target = join(tempDir, 'Force.java')
@@ -157,9 +136,9 @@ describe('Apply Engine e2e', () => {
     const change = ctx.changeCenter.list()[0]!
 
     writeFileSync(target, 'externally edited\n')
-    const result = await ctx.changeCenter.apply(change.id, true)
+    const result = await ctx.changeCenter.saveEdit(change.id, 'my edit\n', true)
     expect(result.kind).toBe('applied')
-    expect(readFileSync(target, 'utf8')).toBe('after\n')
+    expect(readFileSync(target, 'utf8')).toBe('my edit\n')
   })
 
   it('rolls back a created file by deleting it', async () => {
@@ -169,50 +148,13 @@ describe('Apply Engine e2e', () => {
 
     await executeWrite(ctx, { file_path: target, content: 'public class Created {}\n' }, agent)
     const change = ctx.changeCenter.list()[0]!
-    await ctx.changeCenter.apply(change.id)
+    await waitForSnapshot(change.sessionId, change.id)
     expect(readFileSync(target, 'utf8')).toBe('public class Created {}\n')
 
     const result = await ctx.changeCenter.rollback(change.id)
     expect(result.kind).toBe('rolled-back')
     expect(() => readFileSync(target, 'utf8')).toThrow(/ENOENT/)
     expect(ctx.changeCenter.get(change.id)?.status).toBe('rolled_back')
-  })
-
-  it('refuses to edit an applied change (roll back first)', async () => {
-    const ctx = await setup()
-    const agent = agentWithSession('edit-applied-1')
-    const target = join(tempDir, 'EditApplied.java')
-    writeFileSync(target, 'before\n')
-
-    await executeWrite(ctx, { file_path: target, content: 'after\n' }, agent)
-    const change = ctx.changeCenter.list()[0]!
-    const result = await ctx.changeCenter.apply(change.id)
-    expect(result.kind).toBe('applied')
-    expect(ctx.changeCenter.get(change.id)?.status).toBe('applied')
-    // Editing an applied change would desync the record from disk:
-    // 结构化错误,不抛 500。
-    const err = ctx.changeCenter.edit(change.id, 'edited\n')
-    expect(err).toMatchObject({ kind: 'error' })
-    expect((err as { message: string }).message).toContain('roll back first')
-  })
-
-  it('accept-all-and-apply applies every pending change', async () => {
-    const ctx = await setup()
-    const agent = agentWithSession('accept-apply-1')
-    const a = join(tempDir, 'A.java')
-    const b = join(tempDir, 'B.java')
-    writeFileSync(a, 'old a\n')
-    writeFileSync(b, 'old b\n')
-
-    await executeWrite(ctx, { file_path: a, content: 'new a\n' }, agent)
-    await executeWrite(ctx, { file_path: b, content: 'new b\n' }, agent)
-
-    const result = await ctx.changeCenter.applyAllPending('accept-apply-1')
-    expect(result.applied).toHaveLength(2)
-    expect(result.failed).toHaveLength(0)
-    expect(readFileSync(a, 'utf8')).toBe('new a\n')
-    expect(readFileSync(b, 'utf8')).toBe('new b\n')
-    expect(ctx.changeCenter.listBySession('accept-apply-1').every(c => c.status === 'applied')).toBe(true)
   })
 
   it('rollback-all restores every applied change to its pre-apply content', async () => {
@@ -225,8 +167,11 @@ describe('Apply Engine e2e', () => {
 
     await executeWrite(ctx, { file_path: a, content: 'new a\n' }, agent)
     await executeWrite(ctx, { file_path: b, content: 'new b\n' }, agent)
-    const applied = await ctx.changeCenter.applyAllPending('rollback-all-1')
-    expect(applied.applied).toHaveLength(2)
+    const ca = ctx.changeCenter.list()[0]!
+    const cb = ctx.changeCenter.list()[1]!
+    await waitForSnapshot(ca.sessionId, ca.id)
+    await waitForSnapshot(cb.sessionId, cb.id)
+    expect(ctx.changeCenter.listBySession('rollback-all-1').every(c => c.status === 'applied')).toBe(true)
 
     const result = await ctx.changeCenter.rollbackAll('rollback-all-1')
     expect(result.rolledBack).toHaveLength(2)
@@ -237,7 +182,7 @@ describe('Apply Engine e2e', () => {
     expect(ctx.changeCenter.listBySession('rollback-all-1').every(c => c.status === 'rolled_back')).toBe(true)
   })
 
-  it('bulk ops must use the agent session id, not the change-session id (route mapping)', async () => {
+  it('rollback-all 用 agent session id 而非 change-session id(route mapping)', async () => {
     const ctx = await setup()
     const agent = agentWithSession('bulk-route-1')
     const target = join(tempDir, 'BulkRoute.java')
@@ -245,8 +190,9 @@ describe('Apply Engine e2e', () => {
 
     await executeWrite(ctx, { file_path: target, content: 'bulk applied\n' }, agent)
     const change = ctx.changeCenter.list()[0]!
-    // A command record rides the same session: it applies as a marker and
-    // must not pollute rollback-all with missing-snapshot noise.
+    await waitForSnapshot(change.sessionId, change.id)
+    // A command record rides the same session: capture 即 applied(标记),
+    // 无快照 —— rollback-all 跳过它,不产生 missing 噪音。
     ctx.changeCenter.record({
       sessionId: 'bulk-route-1',
       cwd: tempDir,
@@ -258,33 +204,24 @@ describe('Apply Engine e2e', () => {
       source: 'agent',
       toolName: 'bash',
     })
-    const commandChange = ctx.changeCenter.list()[1]!
+    const commandChange = ctx.changeCenter.listBySession('bulk-route-1').find(c => c.kind === 'command')!
 
     // SessionService opens a change-session per captured change; the HTTP
     // route receives THAT id. The change store is keyed by the AGENT session
-    // id (change.sessionId), so passing the change-session id directly — the
-    // pre-fix route behavior — silently matches nothing.
+    // id (change.sessionId), so the route maps changeSession.id → agentSessionId.
     const changeSession = ctx.changeSessions.list()[0]!
     expect(changeSession.agentSessionId).toBe('bulk-route-1')
     expect(changeSession.id).not.toBe('bulk-route-1')
 
-    const wrongKey = await ctx.changeCenter.applyAllPending(changeSession.id)
-    expect(wrongKey.applied).toHaveLength(0)
-    expect(ctx.changeCenter.get(change.id)?.status).toBe('pending')
+    const wrongKey = await ctx.changeCenter.rollbackAll(changeSession.id)
+    expect(wrongKey.rolledBack).toHaveLength(0)
 
-    // The route maps changeSession.id → changeSession.agentSessionId first.
-    const result = await ctx.changeCenter.applyAllPending(changeSession.agentSessionId)
-    expect(result.applied).toContain(change.id)
-    expect(result.applied).toContain(commandChange.id)
-    expect(ctx.changeCenter.get(change.id)?.status).toBe('applied')
-    expect(readFileSync(target, 'utf8')).toBe('bulk applied\n')
-
-    // Rollback-all restores the file; the command marker is skipped (no
-    // snapshot exists for it) instead of surfacing as a missing snapshot.
+    // 用 agent session id:文件回滚,命令标记跳过。
     const rolled = await ctx.changeCenter.rollbackAll(changeSession.agentSessionId)
     expect(rolled.rolledBack).toEqual([change.id])
     expect(rolled.missing).toHaveLength(0)
     expect(rolled.failed).toHaveLength(0)
     expect(readFileSync(target, 'utf8')).toBe('original\n')
+    expect(ctx.changeCenter.get(commandChange.id)?.status).toBe('applied')
   })
 })

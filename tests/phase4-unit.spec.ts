@@ -142,8 +142,7 @@ describe('ChangeService command kind', () => {
       source: 'agent', toolName: 'bash',
     })
     expect(change.kind).toBe('command')
-    const result = await ctx.changeCenter.apply(change.id)
-    expect(result.kind).toBe('applied')
+    // 5.x:capture 即登记 —— 命令变更记录即 applied(不重新执行)。
     expect(ctx.changeCenter.get(change.id)?.status).toBe('applied')
   })
 })

@@ -17,7 +17,7 @@ import type {} from '@deepseek-ai/dsh-agent-default-model'
 import { BlockAssembler, createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { FixRequest, FixResult } from '../models/Phase4.ts'
 import type { ReviewFinding } from '../models/Phase3.ts'
-import type { ActionError, ChangeService } from '../services/ChangeService.ts'
+import type { ChangeService } from '../services/ChangeService.ts'
 import type { FileChange } from '../models/FileChange.ts'
 
 declare module '@deepseek-ai/cordis' {
@@ -141,20 +141,21 @@ export class AIFixService extends Service {
         request.updatedAt = Date.now()
         return { fixRequestId: request.id, changeIds: [], summary: request.resultSummary }
       }
-      // Record the fix as a new pending change (never write to disk here).
-      const updated = changes.edit(change.id, fixed)
-      if (isEditError(updated)) {
+      // 5.x:修复 = 用户显式授权的写盘(编辑保存语义) —— 写盘 + 登记 applied,
+      // 不满可回滚(恢复 before)或再次修复。
+      const outcome = await changes.saveEdit(change.id, fixed)
+      if (outcome.kind !== 'applied') {
         request.status = 'failed'
-        request.resultSummary = updated.message
+        request.resultSummary = 'message' in outcome ? outcome.message : '写盘冲突:磁盘内容与捕获版本不一致'
         request.updatedAt = Date.now()
         return { fixRequestId: request.id, changeIds: [], summary: request.resultSummary }
       }
       request.status = 'completed'
-      request.resultSummary = `Fixed ${change.path} (${change.id} reset to pending)`
+      request.resultSummary = `Fixed ${change.path} (${change.id} written)`
       request.updatedAt = Date.now()
       return {
         fixRequestId: request.id,
-        changeIds: [updated.id],
+        changeIds: [change.id],
         summary: request.resultSummary,
       }
     } catch (error) {
@@ -173,9 +174,4 @@ export function extractFencedContent(text: string): string | undefined {
   // Fallback: the whole text if it is not empty and looks like file content.
   const trimmed = text.trim()
   return trimmed.length > 0 ? trimmed : undefined
-}
-
-/** Narrow an edit result to its error variant (edit 结构化错误,不抛). */
-function isEditError(result: FileChange | ActionError): result is ActionError {
-  return typeof result === 'object' && result !== null && (result as ActionError).kind === 'error'
 }

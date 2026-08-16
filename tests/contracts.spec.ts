@@ -1,15 +1,14 @@
 /**
- * 3.x behavior contracts: the six contract groups the plan calls for —
- * state machine / apply / rollback / batch / SSE / editor — plus one golden
- * flow. These pin behavior, not feature counts.
+ * 5.x behavior contracts:
  *
  * A. 状态机契约:actionsFor 与共享 CHANGE_STATE 完全一致;非法转移返回结构化错误。
- * B. Apply 契约:hash 冲突 → failed + 外部修改;force 绕过。
- * C. Rollback 契约:缺快照 → missing-snapshot,状态保持 applied(绝不误标 rolled_back)。
- * D. Batch 契约:结果计数互斥且覆盖全部变更。
+ * B. 写盘契约:capture 即 applied(磁盘=after);编辑保存 saveEdit 一步写盘;
+ *    hash 冲突 → conflict + 状态保持 applied(不覆盖,force 才绕过)。
+ * C. Rollback 契约:缺快照 → missing-snapshot,状态保持 applied(绝不误标 rolled_back);
+ *    回滚→恢复 闭环(diskBaseline 守卫不误判)。
+ * D. Hunk 契约:块级撤销/应用/编辑写盘(与整体一致)。
  * E. SSE 契约:统一事件名在正确时机触发。
- * F. Editor 契约:edit → diff 重算 → apply 写入的是编辑后的内容(绝不是原始 after)。
- * G. 黄金流程:capture → review → apply → 校验 → rollback → 校验恢复。
+ * F. 黄金流程:capture → rollback → restore 一条线性流程。
  * @module dsh-change-center/tests
  */
 
@@ -19,8 +18,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
-import { SessionStore, SessionId, SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
-import type { Session } from '@deepseek-ai/dsh-session'
+import { SessionStore, SessionId } from '@deepseek-ai/dsh-session'
 import { ChangeService } from '../src/services/ChangeService.ts'
 import { SessionService } from '../src/services/SessionService.ts'
 import { ApplyService } from '../src/services/ApplyService.ts'
@@ -30,6 +28,7 @@ import { CHANGE_ACTIONS, CHANGE_TRANSITIONS, canTransition, type ChangeAction } 
 import { actionsFor } from '../src/client/changeActions.ts'
 import type { ChangeStatus } from '../src/models/FileChange.ts'
 import { removeDirSafe } from './helpers/removeDir.ts'
+import { waitForSnapshot } from './helpers/waitSnapshot.ts'
 
 let tempDir: string
 
@@ -75,20 +74,17 @@ function recordFile(ctx: Context, sessionId: string, path: string, over: Partial
   return change.id
 }
 
-describe('A. 状态机契约(应用↔回滚 4 状态)', () => {
+describe('A. 状态机契约(capture 即登记,回滚⇄恢复)', () => {
   it('actionsFor 与共享 CHANGE_STATE 完全一致,且每个操作都有合法转移', () => {
     const actionTarget: Record<ChangeAction, ChangeStatus> = {
       apply: 'applied',
-      'retry-apply': 'applied',
       rollback: 'rolled_back',
     }
     for (const status of Object.keys(CHANGE_ACTIONS) as ChangeStatus[]) {
       const actions = CHANGE_ACTIONS[status]
       const matrix = actionsFor(status)
-      expect(matrix.canApply).toBe(actions.includes('apply') && status === 'pending')
-      expect(matrix.canRetryApply).toBe(actions.includes('retry-apply') && status === 'failed')
-      expect(matrix.canRollback).toBe(actions.includes('rollback') && status === 'applied')
-      expect(matrix.canReapply).toBe(actions.includes('apply') && status === 'rolled_back')
+      expect(matrix.canRollback).toBe(status === 'applied' && actions.includes('rollback'))
+      expect(matrix.canReapply).toBe(status === 'rolled_back' && actions.includes('apply'))
       for (const action of actions) {
         expect(canTransition(status, actionTarget[action]), `${status} → ${action}`).toBe(true)
       }
@@ -96,7 +92,6 @@ describe('A. 状态机契约(应用↔回滚 4 状态)', () => {
   })
 
   it('TRANSITIONS 表是 CHANGE_TRANSITIONS 的同一事实源', () => {
-    // CHANGE_TRANSITIONS 必须覆盖全部四个状态且每个目标合法可查。
     for (const status of Object.keys(CHANGE_TRANSITIONS) as ChangeStatus[]) {
       for (const target of CHANGE_TRANSITIONS[status]) {
         expect(canTransition(status, target)).toBe(true)
@@ -111,45 +106,56 @@ describe('A. 状态机契约(应用↔回滚 4 状态)', () => {
       sessionId: 's', cwd: tempDir, path: 'a.txt', operation: 'modify',
       before: 'x\n', after: 'y\n', source: 'agent', toolName: 'edit',
     }).id
-    // 4 状态双操作模型:rolled_back 变更不可被「回滚」;apply 失败路径走 failed。
-    const rolled = ctx.changeCenter.rollback(id)
-    expect((await rolled)).toMatchObject({ kind: 'error' })
-    const pending = ctx.changeCenter.get(id)
-    expect(pending?.status).toBe('pending')
+    // 5.x:applied 变更的「回滚」依赖快照,无快照服务 → 结构化错误(不抛)。
+    const rolled = await ctx.changeCenter.rollback(id)
+    expect(rolled).toMatchObject({ kind: 'error' })
+    expect(ctx.changeCenter.get(id)?.status).toBe('applied')
   })
 })
 
-describe('B + C. Apply / Rollback 契约(真实文件系统)', () => {
-  it('apply 写入编辑后的内容(editor 契约:edit → diff 重算 → apply 写入新版本,无假冲突)', async () => {
+describe('B + C. 写盘 / Rollback 契约(真实文件系统)', () => {
+  it('capture 即登记:record 后 status=applied、磁盘=after、diff 就绪', async () => {
     const ctx = await fullSetup()
-    const target = join(tempDir, 'editor.txt')
-    // 捕获发生在工具写盘之后:磁盘 = after(已知基线)。
+    const target = join(tempDir, 'capture.txt')
     writeFileSync(target, 'changed\n')
-    const id = recordFile(ctx, 'editor-1', target)
-    // 用户编辑:Draft → Save → after 更新,diff 重算(基线不变)。
-    ctx.changeCenter.edit(id, 'user edited\n')
+    const id = recordFile(ctx, 'capture-1', target)
     const change = ctx.changeCenter.get(id)!
-    expect(change.diff).toContain('user edited')
-    // Apply 必须写入编辑后的版本,且不被误判为外部修改。
-    const outcome = await ctx.changeCenter.apply(id)
-    expect(outcome.kind).toBe('applied')
-    expect(readFileSync(target, 'utf8')).toBe('user edited\n')
+    expect(change.status).toBe('applied')
+    expect(change.diskBaseline).toBe('changed\n')
+    expect(change.diff).toContain('-original')
+    expect(change.diff).toContain('+changed')
+    expect(readFileSync(target, 'utf8')).toBe('changed\n')
   })
 
-  it('hash 冲突 → failed + 外部修改,不覆盖磁盘(force 才绕过)', async () => {
+  it('编辑保存 saveEdit:diff 重算 → 一步写盘(基线不变不误判为外部修改)', async () => {
+    const ctx = await fullSetup()
+    const target = join(tempDir, 'editor.txt')
+    writeFileSync(target, 'changed\n')
+    const id = recordFile(ctx, 'editor-1', target)
+    await waitForSnapshot('editor-1', id)
+    // 用户编辑:Draft → Save → after 更新,diff 重算(基线不变) → 写盘。
+    const outcome = await ctx.changeCenter.saveEdit(id, 'user edited\n')
+    expect(outcome.kind).toBe('applied')
+    expect(ctx.changeCenter.get(id)!.diff).toContain('user edited')
+    expect(readFileSync(target, 'utf8')).toBe('user edited\n')
+    expect(ctx.changeCenter.get(id)!.status).toBe('applied')
+  })
+
+  it('hash 冲突 → conflict,状态保持 applied 不覆盖磁盘(force 才绕过)', async () => {
     const ctx = await fullSetup()
     const target = join(tempDir, 'conflict.txt')
     writeFileSync(target, 'changed\n')
     const id = recordFile(ctx, 'conflict-1', target)
     // 磁盘被外部修改(≠ 已知基线)。
     writeFileSync(target, 'external edit\n')
-    const outcome = await ctx.changeCenter.apply(id)
+    const outcome = await ctx.changeCenter.saveEdit(id, 'my edit\n')
     expect(outcome).toMatchObject({ kind: 'conflict' })
-    expect(ctx.changeCenter.get(id)?.status).toBe('failed')
+    expect(ctx.changeCenter.get(id)?.status).toBe('applied')
     expect(readFileSync(target, 'utf8')).toBe('external edit\n')
-    const forced = await ctx.changeCenter.apply(id, true)
+    // force:明确选择覆盖。
+    const forced = await ctx.changeCenter.saveEdit(id, 'my edit\n', true)
     expect(forced.kind).toBe('applied')
-    expect(readFileSync(target, 'utf8')).toBe('changed\n')
+    expect(readFileSync(target, 'utf8')).toBe('my edit\n')
   })
 
   it('回滚缺快照 → missing-snapshot,状态保持 applied(绝不误标 rolled_back)', async () => {
@@ -157,7 +163,7 @@ describe('B + C. Apply / Rollback 契约(真实文件系统)', () => {
     const target = join(tempDir, 'rollback-missing.txt')
     writeFileSync(target, 'changed\n')
     const id = recordFile(ctx, 'rollback-1', target)
-    await ctx.changeCenter.apply(id)
+    await waitForSnapshot('rollback-1', id)
     expect(ctx.changeCenter.get(id)?.status).toBe('applied')
     // 删除快照 marker(4.2 新布局)模拟丢失。
     const snapRoot = join(process.env.DSH_HOME!, 'change-center', 'snapshots', 'changes', 'rollback-1', id)
@@ -168,25 +174,23 @@ describe('B + C. Apply / Rollback 契约(真实文件系统)', () => {
     expect(readFileSync(target, 'utf8')).toBe('changed\n')
   })
 
-  it('应用→回滚→重新应用 闭环(diskBaseline 守卫不误判外部修改)', async () => {
+  it('回滚→恢复 闭环(diskBaseline 守卫不误判外部修改)', async () => {
     const ctx = await fullSetup()
     const target = join(tempDir, 'cycle.txt')
-    // 捕获发生在写盘之后:record 前磁盘已是 after。
     writeFileSync(target, 'changed\n')
     const id = recordFile(ctx, 'cycle-1', target, { before: 'original\n', after: 'changed\n' })
-    // 第一次应用:守卫(基线=after)通过,写入 after(幂等)。
-    const applied = await ctx.changeCenter.apply(id)
-    expect(applied.kind).toBe('applied')
+    await waitForSnapshot('cycle-1', id)
+    // capture 即 applied。
     expect(ctx.changeCenter.get(id)?.status).toBe('applied')
     expect(readFileSync(target, 'utf8')).toBe('changed\n')
-    // 回滚:磁盘恢复 before,基线更新为 before。
+    // 回滚:磁盘恢复 before,状态 rolled_back。
     const rolled = await ctx.changeCenter.rollback(id)
     expect(rolled.kind).toBe('rolled-back')
     expect(readFileSync(target, 'utf8')).toBe('original\n')
     expect(ctx.changeCenter.get(id)?.status).toBe('rolled_back')
-    // 重新应用:磁盘=before=基线,不应被守卫误判为外部修改。
-    const reapplied = await ctx.changeCenter.apply(id)
-    expect(reapplied.kind).toBe('applied')
+    // 恢复:写回 agent 版本(after),守卫(磁盘=before=基线)不误判。
+    const restored = await ctx.changeCenter.restore(id)
+    expect(restored.kind).toBe('applied')
     expect(readFileSync(target, 'utf8')).toBe('changed\n')
     expect(ctx.changeCenter.get(id)?.status).toBe('applied')
   })
@@ -196,7 +200,6 @@ describe('B + C. Apply / Rollback 契约(真实文件系统)', () => {
     const target = join(tempDir, 'hunks.txt')
     const before = 'a\nb\nc\nd\ne\nf\n'
     const after = 'A\nb\nc\nD\ne\nf\n'
-    // 捕获发生在写盘之后:磁盘 = after(所有 hunk 默认已应用)。
     writeFileSync(target, after)
     const id = recordFile(ctx, 'hunk-1', target, { before, after })
     // 撤销 hunk0(行1 a→A):文件恢复 before 的 a,其余(hunk1 的 d→D)保持。
@@ -243,50 +246,15 @@ describe('B + C. Apply / Rollback 契约(真实文件系统)', () => {
   })
 })
 
-describe('D. Batch 契约', () => {
-  it('批量契约:同路径多次写入合并为一条;deny → blocked;非待审 → skipped', async () => {
-    const ctx = await fullSetup()
-    const sessionId = 'batch-1'
-    // c1:同一路径写两次 → 合并为一条记录(保留最初 before,after 取最新)。
-    const appTarget = join(tempDir, 'app.ts')
-    const merged = recordFile(ctx, sessionId, appTarget, { before: 'old\n', after: 'older\n' })
-    const again = recordFile(ctx, sessionId, appTarget, { before: 'older\n', after: 'changed\n' })
-    expect(again).toBe(merged)
-    expect(ctx.changeCenter.get(merged)?.before).toBe('old\n')
-    expect(ctx.changeCenter.get(merged)?.after).toBe('changed\n')
-    // c3:命中 deny(src/security 删除)→ blocked。
-    const c3 = recordFile(ctx, sessionId, join(tempDir, 'src', 'security', 'Config.java'), { operation: 'delete', before: 'x\n', after: null })
-    // c4:先应用掉(非 pending → skipped)。
-    const c4 = recordFile(ctx, sessionId, join(tempDir, 'skip.ts'))
-    writeFileSync(join(tempDir, 'skip.ts'), 'changed\n')
-    await ctx.changeCenter.apply(c4)
-    // 磁盘与合并后的磁盘基线一致,preview 才能通过。
-    writeFileSync(appTarget, 'changed\n')
-
-    const result = await ctx.changeCenter.applyAllPending(sessionId)
-    const all = [...result.applied, ...result.failed.map(f => f.id), ...result.blocked.map(b => b.id), ...result.skipped, ...result.superseded]
-    // 互斥:无重复。
-    expect(new Set(all).size).toBe(all.length)
-    // 覆盖:合并后共 3 个变更(merged / c3 / c4)。
-    expect(all).toHaveLength(3)
-    expect(all.sort()).toEqual([merged, c3, c4].sort())
-    // 语义:merged applied,c3 deny → blocked,c4 skipped。
-    expect(result.applied).toContain(merged)
-    expect(result.blocked.some(b => b.id === c3)).toBe(true)
-    expect(result.skipped).toContain(c4)
-    expect(result.superseded).toHaveLength(0)
-    expect(ctx.changeCenter.get(merged)?.status).toBe('applied')
-    expect(ctx.changeCenter.get(c3)?.status).toBe('pending')
-    expect(ctx.changeCenter.get(c4)?.status).toBe('applied')
-  })
-})
-
 describe('E. SSE 契约', () => {
   it('统一事件名在正确时机触发(change.updated / session.created / session.completed)', async () => {
     const ctx = await fullSetup()
     await ctx.plugin(SessionStore)
     // 先记录变更(会触发 fallback session 的 session.created,不计入断言)。
-    recordFile(ctx, 'sse-1', join(tempDir, 'sse.txt'))
+    const target = join(tempDir, 'sse.txt')
+    writeFileSync(target, 'changed\n')
+    const id = recordFile(ctx, 'sse-1', target)
+    await waitForSnapshot('sse-1', id)
     const updated: string[] = []
     const created: string[] = []
     const completed: string[] = []
@@ -294,12 +262,8 @@ describe('E. SSE 契约', () => {
     ctx.on('session.created', () => { created.push('x') })
     ctx.on('session.completed', () => { completed.push('x') })
 
-    // 5.x:无 approve/reject;命令变更 apply 直接落 applied,验证 change.updated 事件。
-    const cmd = ctx.changeCenter.record({
-      sessionId: 'sse-1', cwd: tempDir, kind: 'command', path: 'npm test', operation: 'execute',
-      before: null, after: 'npm test', source: 'agent', toolName: 'bash',
-    })
-    await ctx.changeCenter.apply(cmd.id)
+    // 5.x:编辑保存(写盘)触发 change.updated(applied)。
+    await ctx.changeCenter.saveEdit(id, 'user edit\n')
     expect(updated).toEqual(['applied'])
 
     const session = ctx.sessions.create(SessionId('sse-agent'), {
@@ -313,26 +277,33 @@ describe('E. SSE 契约', () => {
 })
 
 describe('F. 黄金流程', () => {
-  it('capture → review → apply → 校验 → rollback → 校验恢复(一条线性流程)', async () => {
+  it('capture → rollback → restore 一条线性流程', async () => {
     const ctx = await fullSetup()
     const sessionId = 'golden-1'
     const a = join(tempDir, 'a.txt')
     const b = join(tempDir, 'b.txt')
-    // 捕获后磁盘 = after。
+    // 捕获后磁盘 = after;capture 即 applied。
     writeFileSync(a, 'changed\n')
     writeFileSync(b, 'changed\n')
     const idA = recordFile(ctx, sessionId, a, { before: 'a1\n' })
     const idB = recordFile(ctx, sessionId, b, { before: 'b1\n' })
-
-    // apply:两条 pending 直接应用(5.x 主路径,无需 approve)。
-    expect((await ctx.changeCenter.apply(idA)).kind).toBe('applied')
-    expect((await ctx.changeCenter.apply(idB)).kind).toBe('applied')
+    await waitForSnapshot(sessionId, idA)
+    await waitForSnapshot(sessionId, idB)
+    expect(ctx.changeCenter.get(idA)?.status).toBe('applied')
+    expect(ctx.changeCenter.get(idB)?.status).toBe('applied')
     expect(readFileSync(a, 'utf8')).toBe('changed\n')
     expect(readFileSync(b, 'utf8')).toBe('changed\n')
-    // undo/rollback:全部回滚 → 恢复 before。
+    // 全部回滚 → 恢复 before。
     const rolled = await ctx.changeCenter.rollbackAll(sessionId)
     expect(rolled.rolledBack).toHaveLength(2)
     expect(readFileSync(a, 'utf8')).toBe('a1\n')
     expect(readFileSync(b, 'utf8')).toBe('b1\n')
+    // 逐条恢复 → 写回 agent 版本。
+    expect((await ctx.changeCenter.restore(idA)).kind).toBe('applied')
+    expect((await ctx.changeCenter.restore(idB)).kind).toBe('applied')
+    expect(readFileSync(a, 'utf8')).toBe('changed\n')
+    expect(readFileSync(b, 'utf8')).toBe('changed\n')
+    expect(ctx.changeCenter.get(idA)?.status).toBe('applied')
+    expect(ctx.changeCenter.get(idB)?.status).toBe('applied')
   })
 })

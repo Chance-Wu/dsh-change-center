@@ -20,7 +20,7 @@
 
 import { createElement, useEffect, useMemo, useState, type ReactElement } from 'react'
 import type {
-  ActionResult, ChangeCenterApi, GitActionResult, GitResponse, WireApplyAllResult, WireChange, WireHistoryEvent, WirePolicyEvaluation, WirePolicyHit, WireReview, WireRisk,
+  ActionResult, ChangeCenterApi, GitActionResult, GitResponse, WireChange, WireHistoryEvent, WirePolicyEvaluation, WirePolicyHit, WireReview, WireRisk,
 } from './index.ts'
 import { ChangeTree, dedupeByPath, relativePath } from './ChangeTree.tsx'
 import type { DiffMode } from './DiffViewer.tsx'
@@ -79,11 +79,6 @@ interface Toast {
   undo?: () => void
 }
 
-/** 批量应用被 冲突/策略 拦截时的轻确认块。 */
-interface WarnState {
-  kind: 'conflict' | 'deny'
-  items: { id: string; message: string }[]
-}
 /** 4.x Task Capsule 状态:会话状态 + 变更状态派生(Linear/Raycast 风格)。 */
 interface CapsuleState {
   label: string
@@ -131,7 +126,6 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [toast, setToast] = useState<Toast | null>(null)
-  const [warnState, setWarnState] = useState<WarnState | null>(null)
   const [editorDraft, setEditorDraft] = useState<string>('')
   const [pendingSelect, setPendingSelect] = useState<string | null>(null)
   const [risk, setRisk] = useState<WireRisk | null>(null)
@@ -315,7 +309,7 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
   // 面板锁:批量进行中 / 风险轻确认未决 / 编辑器有未保存修改,单条入口全部禁用。
   // 注意:toast 只是反馈(单文件应用/块操作后弹「✓ 已应用」),不参与锁定 ——
   // 否则应用一个文件后 6 秒内所有按钮置灰,无法连续处理。批量进行中由 busy 保护。
-  const panelLocked = busy || warnState !== null || editorDirty
+  const panelLocked = busy || editorDirty
 
   // P-3 键盘快捷键(仅高频动作;输入框/编辑器聚焦时全部短路)。
   // 只读面没有操作,快捷键整体关闭。
@@ -332,9 +326,7 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
       }
       if (mod && event.key === 'Enter') {
         event.preventDefault()
-        if (change !== null && !panelLocked && actionsFor(change.status).canApply) {
-          quickApply(change.id)
-        }
+        // 5.x:capture 即登记,无「应用」—— ⌘Enter 不再绑定操作。
         return
       }
       const currentIndex = change !== null ? filteredChanges.findIndex(c => c.id === change.id) : -1
@@ -354,11 +346,6 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
           return
         }
         case 'm': setMoreOpen(true); return
-        case 'a':
-          if (change !== null && !panelLocked && actionsFor(change.status).canApply) {
-            quickApply(change.id)
-          }
-          return
         case 'u':
         case 'z':
           if (change !== null && !panelLocked && actionsFor(change.status).canRollback) quickAction(change.id, 'rollback')
@@ -409,17 +396,12 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
       .catch(err => setError(err instanceof Error ? err.message : String(err)))
   }
 
-  /** 3.x:树行主操作 = 应用/重试应用(与 ReviewBar 同一路径)。 */
-  const quickApply = (id: string): void => {
-    api.applyChange(id)
-      .then((result: ActionResult) => {
+  /** 恢复(撤销回滚):rolled_back → 写回 agent 版本。 */
+  const quickRestore = (id: string): void => {
+    api.changeAction(id, 'restore')
+      .then(() => {
         afterAction()
-        if ((result as { kind?: string }).kind === 'applied') {
-          // 应用成功即给撤销入口,误点可立即回滚。
-          setToast({ text: '✓ 已应用', kind: 'ok', undo: () => quickAction(id, 'rollback') })
-        } else if ((result as { kind?: string }).kind === 'conflict') {
-          setToast({ text: '应用冲突:磁盘内容与捕获版本不一致', kind: 'warn' })
-        }
+        setToast({ text: '✓ 已恢复', kind: 'ok' })
       })
       .catch(err => setError(err instanceof Error ? err.message : String(err)))
   }
@@ -470,34 +452,8 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
       })
   }
 
-  // ── V-4 批量操作 ────────────────────────────────────────────────
-  const applyAll = (force = false): void => {
-    setBusy(true)
-    setWarnState(null)
-    api.applyAllPending(sessionId, force)
-      .then(result => {
-        afterAction()
-        const conflicts = result.failed.filter(item => item.message.includes('external modification detected'))
-        if (!force && result.blocked.length > 0) {
-          setWarnState({ kind: 'deny', items: result.blocked })
-        } else if (!force && conflicts.length > 0) {
-          setWarnState({ kind: 'conflict', items: conflicts })
-        } else if (result.failed.length > conflicts.length || (force && result.failed.length > 0)) {
-          setToast({ text: `! ${result.failed.length} 个变更应用失败`, kind: 'error' })
-        } else if (result.applied.length > 0) {
-          setToast({
-            text: `✓ ${result.applied.length} 个变更已应用`,
-            kind: 'ok',
-            undo: () => rollbackAll(),
-          })
-        } else {
-          setToast({ text: '没有待应用的变更', kind: 'warn' })
-        }
-      })
-      .catch(err => setToast({ text: err instanceof Error ? err.message : String(err), kind: 'error' }))
-      .finally(() => setBusy(false))
-  }
-
+  // ── 批量操作 ────────────────────────────────────────────────────
+  // 5.x:capture 即登记,无「全部应用」;批量只剩「全部回滚」。
   const rollbackAll = (): void => {
     setBusy(true)
     api.rollbackAll(sessionId)
@@ -512,10 +468,18 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
       .finally(() => setBusy(false))
   }
 
+  /** 编辑保存 = 一步写盘(更新记录 + 守卫 + 引擎写盘)。 */
   const saveEditor = (): void => {
     if (change === null) return
     api.editChange(change.id, editorDraft)
-      .then(afterAction)
+      .then((result: ActionResult) => {
+        afterAction()
+        if ((result as { kind?: string }).kind === 'conflict' || (result as { error?: string }).error !== undefined) {
+          setToast({ text: '已保存记录，但写盘发现外部修改，可查看差异后处理', kind: 'warn' })
+        } else {
+          setToast({ text: '✓ 已保存并写入', kind: 'ok', undo: () => quickAction(change.id, 'rollback') })
+        }
+      })
       .catch(err => setError(err instanceof Error ? err.message : String(err)))
   }
 
@@ -673,18 +637,12 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
               )
               : null,
           ),
-          // 3.0.3:Focus 只给一个主要动作;无待审时显示「✓ 已全部应用」。
+          // 5.x:capture 即登记 —— Focus 只给「审查」入口(回滚在 Review 里)。
           createElement('div', { className: css.focusActions },
             createElement('button', {
               onClick: () => setMode('review'),
-              className: baseCss.buttonGhost,
-            }, '审查'),
-            createElement('button', {
-              onClick: () => applyAll(false),
-              disabled: busy || pendingCount === 0,
               className: baseCss.buttonPrimary,
-              title: '文件已由 agent 写入磁盘;「全部应用」做冲突/策略检查并登记,之后可回滚',
-            }, busy ? '处理中…' : pendingCount === 0 ? '✓ 已全部应用' : '全部应用'),
+            }, '审查'),
           ),
         ),
         // 4.x Git 操作独立于 turn 状态卡(与变更审查分开管理)。
@@ -768,15 +726,8 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
             : null,
         ),
         ),
-        // 批量反馈(toast/轻确认)在 Focus 下同样可见。
+        // 批量反馈(toast)在 Focus 下同样可见。
         toast !== null ? renderToast(toast, css, baseCss, setToast, undoRemaining) : null,
-        warnState !== null
-          ? createElement(WarnBlock, {
-            state: warnState,
-            onDismiss: () => setWarnState(null),
-            onForce: () => applyAll(true),
-          })
-          : null,
       ),
     )
   }
@@ -852,25 +803,12 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
         createElement(Segmented, {
           segments: [
             { value: 'all', label: '全部' },
-            { value: 'pending', label: '待处理' },
             { value: 'issues', label: `问题${issueIds.size > 0 ? ` ${issueIds.size}` : ''}` },
           ],
           value: filter,
           onChange: (next: string) => setFilter(next as ChangeFilter),
         }),
-        pendingCount > 0
-          ? createElement('span', { className: css.pendingBadge }, `${pendingCount} 项待确认`)
-          : null,
       ),
-
-      // 轻确认块:有风险时给 [查看] [仍然全部应用(force)]。
-      warnState !== null
-        ? createElement(WarnBlock, {
-          state: warnState,
-          onDismiss: () => setWarnState(null),
-          onForce: () => applyAll(true),
-        })
-        : null,
 
       // toast(含 Undo 倒计时,3.0.4)。
       toast !== null ? renderToast(toast, css, baseCss, setToast, undoRemaining) : null,
@@ -897,7 +835,7 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
             ? { disabled: true }
             : {
               onRollback: (id: string) => quickAction(id, 'rollback'),
-              onApply: quickApply,
+              onRestore: (id: string) => quickRestore(id),
               disabled: panelLocked,
               deniedIds,
             }),
@@ -927,15 +865,14 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
               draft: editorDraft,
               onDraftChange: setEditorDraft,
               onSaved: (after) => {
-                // 流程优化:编辑保存 = 更新记录 + 立即应用(一步到位);冲突时提示处理。
+                // 5.x:编辑保存 = 一步写盘(更新记录 + 守卫 + 引擎写盘);冲突时提示处理。
                 api.editChange(change.id, after)
-                  .then(() => api.applyChange(change.id))
                   .then((result: ActionResult) => {
                     afterAction()
                     if ((result as { kind?: string }).kind === 'conflict' || (result as { error?: string }).error !== undefined) {
-                      setToast({ text: '已保存，但应用时发现外部修改，可查看差异后处理', kind: 'warn' })
+                      setToast({ text: '已保存记录，但写盘发现外部修改，可查看差异后处理', kind: 'warn' })
                     } else {
-                      setToast({ text: '✓ 已保存并应用', kind: 'ok', undo: () => quickAction(change.id, 'rollback') })
+                      setToast({ text: '✓ 已保存并写入', kind: 'ok', undo: () => quickAction(change.id, 'rollback') })
                     }
                   })
                   .catch(err => setError(err instanceof Error ? err.message : String(err)))
@@ -961,10 +898,10 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
               disabled: panelLocked,
               onPrev: () => navigateChange(-1),
               onNext: () => navigateChange(1),
-              // 应用成功即给撤销入口(与树行一致);回滚成功反馈状态变化。
+              // 恢复/强制写入成功给撤销入口(回滚);回滚成功反馈状态变化。
               onApplied: (operation) => {
                 if (operation === 'apply') {
-                  setToast({ text: '✓ 已应用', kind: 'ok', undo: () => quickAction(change.id, 'rollback') })
+                  setToast({ text: '✓ 已写入', kind: 'ok', undo: () => quickAction(change.id, 'rollback') })
                 } else {
                   setToast({ text: '↶ 已回滚', kind: 'ok' })
                 }
@@ -972,13 +909,13 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
             }),
           ),
       ),
-      // 4.x 底部 Action Dock:选中计数 + 回滚/全部应用(只读面隐藏)。
+      // 4.x 底部 Action Dock:选中计数 + 全部回滚(只读面隐藏)。
       readOnly ? null : createElement('div', { className: css.actionDock },
         createElement('div', { className: css.dockInfo },
           createElement('span', { className: css.dockCount }, `${fileChanges.length} 个变更`),
-          // 提示:文件已写入,「全部应用」= 确认 + 检查(不重复写盘)。
-          createElement('span', { className: css.dockHint, title: 'agent 写盘后即捕获;「全部应用」做冲突/策略检查并登记,之后可回滚' },
-            '文件已写入 · 应用=确认+检查'),
+          // 提示:capture 即登记,回滚随时可用。
+          createElement('span', { className: css.dockHint, title: 'agent 写盘后即捕获并登记;回滚恢复捕获前的版本' },
+            '已登记 · 回滚随时可用'),
           change !== null
             ? createElement('span', { className: css.dockSelected }, `已选 ${change.path.split('/').pop()}`)
             : null,
@@ -990,14 +927,8 @@ export function ChangeReviewPanel(props: ChangeReviewPanelProps): ReactElement {
               disabled: busy,
               className: baseCss.buttonGhost,
               title: '撤销本会话所有已应用的变更',
-            }, '↶ 回滚')
+            }, '↶ 全部回滚')
             : null,
-          createElement('button', {
-            onClick: () => applyAll(false),
-            disabled: busy || pendingCount === 0,
-            className: baseCss.buttonPrimary,
-            title: '文件已由 agent 写入磁盘;「全部应用」做冲突/策略检查并登记,之后可回滚',
-          }, busy ? '处理中…' : '✓ 全部应用'),
         ),
       ),
     ),
@@ -1021,35 +952,6 @@ function renderToast(
     ? createElement('button', { onClick: toast.undo, className: base.buttonMini }, `Undo ${undoRemaining}s`)
     : null,
   createElement('button', { onClick: () => setToast(null), className: cssMap.toastClose }, '×'),
-  )
-}
-
-/** 轻确认块:有风险的批量应用。 */
-function WarnBlock(props: {
-  state: WarnState
-  onDismiss: () => void
-  onForce: () => void
-}): ReactElement {
-  const { state, onDismiss, onForce } = props
-  const [expanded, setExpanded] = useState(false)
-  const text = state.kind === 'deny'
-    ? `⛔ ${state.items.length} 个变更被策略拦截`
-    : `⚠ ${state.items.length} 个变更存在外部修改`
-  return createElement('div', { className: css.warnBlock },
-    createElement('div', { className: css.warnHead },
-      createElement('span', null, text),
-      createElement('button', { onClick: () => setExpanded(!expanded), className: baseCss.buttonMini }, expanded ? '收起' : '查看'),
-      createElement('button', { onClick: onForce, className: baseCss.buttonPrimary }, '仍然全部应用'),
-      createElement('button', { onClick: onDismiss, className: baseCss.buttonGhost }, '取消'),
-    ),
-    expanded
-      ? createElement('ul', { className: css.warnList },
-        state.items.map(item => createElement('li', { key: item.id, className: css.warnItem },
-          createElement('span', { className: css.warnId }, item.id),
-          createElement('span', null, item.message),
-        )),
-      )
-      : null,
   )
 }
 

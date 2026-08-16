@@ -29,8 +29,8 @@ export interface ChangeTreeProps {
   onSelect: (id: string) => void
   /** Quick rollback from a tree row (applied). */
   onRollback?: (id: string) => void
-  /** Quick apply from a tree row (pending/failed/rolled_back) — 行主操作。 */
-  onApply?: (id: string) => void
+  /** Quick restore from a tree row (rolled_back) — 写回 agent 版本。 */
+  onRestore?: (id: string) => void
   /** Panel lock (bulk op in flight / result showing): hide quick actions. */
   disabled?: boolean
   /** S-6:策略 deny 的变更 id 集合 → 行尾 ⛔ 徽标。 */
@@ -197,12 +197,10 @@ function Chevron(props: { collapsed: boolean }): ReactElement {
   }))
 }
 
-/** 4 状态双操作模型:每行唯一主操作(应用/重试/回滚/重新应用)。 */
-function primaryAction(actions: ChangeActions): 'apply' | 'retry-apply' | 'rollback' | 'reapply' | null {
-  if (actions.canApply) return 'apply'
-  if (actions.canRetryApply) return 'retry-apply'
+/** 5.x 双操作模型:每行唯一主操作(回滚 / 恢复)。 */
+function primaryAction(actions: ChangeActions): 'rollback' | 'restore' | null {
   if (actions.canRollback) return 'rollback'
-  if (actions.canReapply) return 'reapply'
+  if (actions.canReapply) return 'restore'
   return null
 }
 
@@ -216,13 +214,9 @@ function riskChipFor(change: WireChange): ReactElement | null {
   }, risk === 'high' ? '高风险' : '中风险')
 }
 
-/** 快捷操作语义配色:应用/重试=蓝、回滚/重处理=中性。 */
+/** 快捷操作语义配色:回滚/恢复=中性。 */
 function actionClass(kind: string): string {
-  switch (kind) {
-    case 'apply':
-    case 'retry-apply': return css.actionApply
-    default: return css.actionGhost
-  }
+  return css.actionGhost
 }
 
 /** One file row: mark + relative path + counts + hover quick actions. */
@@ -256,10 +250,10 @@ function renderFileRow(
     ? createElement('button', {
       className: actionClass(primary),
       onClick: stop(() => {
-        if (primary === 'apply' || primary === 'retry-apply' || primary === 'reapply') props.onApply?.(change.id)
-        else if (primary === 'rollback') props.onRollback?.(change.id)
+        if (primary === 'rollback') props.onRollback?.(change.id)
+        else if (primary === 'restore') props.onRestore?.(change.id)
       }),
-    }, primary === 'retry-apply' ? '重试' : primary === 'apply' ? '应用' : primary === 'reapply' ? '重新应用' : primary)
+    }, primary === 'rollback' ? '回滚' : '恢复')
     : null
 
   return createElement('button', {

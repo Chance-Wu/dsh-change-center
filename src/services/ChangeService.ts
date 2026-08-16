@@ -71,35 +71,6 @@ function actionError(error: unknown): ActionError {
   return { kind: 'error', message: error instanceof Error ? error.message : String(error) }
 }
 
-/**
- * Result of {@link ChangeService.applyAllPending}.
- *
- * The counters partition the session's changes into disjoint categories:
- * `applied + failed + blocked` = pending changes actually processed, `skipped`
- * = other non-pending changes, `superseded` = older writes to a path whose
- * newer change was processed.
- */
-export interface ApplyAllResult {
-  /** Approved changes successfully applied (incl. command/external). */
-  applied: string[]
-  /** Changes skipped: not pending (already applied/rejected/approved). */
-  skipped: string[]
-  /** Older changes to a path superseded by a newer change (not applied). */
-  superseded: string[]
-  /** Changes that failed to apply, with a reason. */
-  failed: { id: string; message: string }[]
-  /**
-   * Changes held back by a deny policy: left pending, not applied, until the
-   * policy is adjusted or the change is handled individually.
-   */
-  blocked: { id: string; message: string }[]
-  /**
-   * 4.5 Safe Apply:通过 Prepare 预检、进入 Commit 阶段的待审变更数
-   * (冲突/deny 在写盘前已从该数中排除)。
-   */
-  prepared: number
-}
-
 /** 4.7 Change Analytics:轻量统计(不是监控平台)。 */
 export interface ChangeAnalytics {
   /** 时间窗内触及的文件数(去重)。 */
@@ -173,29 +144,31 @@ export class ChangeService extends Service {
   /**
    * Record a captured change and emit `change.created`.
    *
-   * 同一会话内对同一文件的多次写入会**合并**为一条记录:保留最初的 `before`,
-   * `after`/`diff` 更新为最新写入,状态回到 pending(新内容需重新确认),
-   * 块级状态作废。评审面本来按路径只显示最新一条,合并避免多条记录堆积,
-   * 也让 diff 呈现「最初 before → 最新 after」的完整差异(只 diff 最新的)。
+   * capture 即登记(5.x 流程收敛):agent 的工具已把文件写盘(磁盘 = after),
+   * 因此记录直接标记 `applied` 并建立 before 快照 —— 回滚随时可用,
+   * 不再需要「应用」按钮做确认登记。同一会话内对同一文件的多次写入会
+   * **合并**为一条记录:保留最初的 `before`,`after`/`diff` 更新为最新写入,
+   * 块级状态作废。评审面按路径只显示最新一条,合并避免记录堆积。
    */
   record(input: NewFileChange): FileChange {
     void this.ensureLoaded()
     const kind = input.kind ?? 'file'
-    // Merge:同会话同路径的文件写入 → 更新已有记录。
+    // Merge:同会话同路径的文件写入 → 更新已有记录(保持 applied + 快照)。
     if (kind === 'file') {
       for (const existing of this.changes.values()) {
         if (existing.kind !== 'file' || existing.sessionId !== input.sessionId || existing.path !== input.path) continue
         existing.after = input.after
         existing.diff = renderUnified(existing.before, existing.after)
         existing.diskBaseline = input.after
-        // diff 变了 → 块级应用/编辑状态作废;新内容需重新确认。
+        // diff 变了 → 块级应用/编辑状态作废。
         existing.hunkApplied = undefined
         existing.hunkEdits = undefined
-        existing.status = 'pending'
+        existing.status = 'applied'
         existing.source = input.source
         existing.toolName = input.toolName
         existing.toolCallId = input.toolCallId
         existing.updatedAt = Date.now()
+        this.captureSnapshot(existing)
         this.ctx.emit('change.updated', existing)
         this.persist()
         return existing
@@ -213,7 +186,8 @@ export class ChangeService extends Service {
       // 3.x:捕获发生在工具写盘之后,已知磁盘状态 = after(命令/外部记录无磁盘态)。
       diskBaseline: kind === 'file' ? input.after : undefined,
       diff: renderUnified(input.before, input.after),
-      status: 'pending',
+      // 5.x:capture 即登记 —— 文件已由 agent 写盘,直接视为已应用。
+      status: 'applied',
       source: input.source,
       toolName: input.toolName,
       toolCallId: input.toolCallId,
@@ -221,9 +195,18 @@ export class ChangeService extends Service {
       updatedAt: Date.now(),
     }
     this.changes.set(change.id, change)
+    // 5.x:捕获时建立 before 快照(best-effort,失败则回滚报 missing-snapshot)。
+    if (kind === 'file') this.captureSnapshot(change)
     this.ctx.emit('change.created', change)
     this.persist()
     return change
+  }
+
+  /** 建 before 快照(best-effort):回滚恢复 `change.before`,与磁盘内容无关。 */
+  private captureSnapshot(change: FileChange): void {
+    const snapshots: SnapshotService | undefined = this.ctx.get('snapshots')
+    if (snapshots === undefined) return
+    void snapshots.snapshot(change).catch(() => undefined)
   }
 
   /** All recorded changes, newest first. */
@@ -262,79 +245,72 @@ export class ChangeService extends Service {
   }
 
   /**
-   * Apply a change to the workspace: snapshot the pre-apply file, run the
-   * apply engine's content-hash guard and atomic write, then transition.
-   * Command/external changes are marked applied without re-running them.
-   * @param id - the change to apply.
-   * @param force - bypass the external-mutation guard.
-   * @returns the engine result; the change's status reflects the outcome.
+   * 写盘核心(私有):hash 守卫(外部修改不覆盖)→ 快照 → 引擎原子写 → 更新基线。
+   * 被「编辑保存(saveEdit)」「冲突中心 resolve」复用。5.x 起 capture 即登记,
+   * 不存在「确认登记型」的应用操作 —— 所有写盘都来自用户显式修改(编辑/hunk/
+   * 恢复/回滚)。
+   * @param force - 绕过外部修改守卫(冲突中心「强制写入」)。
+   * @returns 引擎结果;conflict 时保持原状态,由 UI 提示。
    */
-  async apply(id: string, force = false): Promise<ApplyResult> {
+  private async writeBack(change: FileChange, force = false): Promise<ApplyResult> {
+    const applyEngine: ApplyService | undefined = this.ctx.get('applyEngine')
+    const snapshots: SnapshotService | undefined = this.ctx.get('snapshots')
+    if (applyEngine === undefined || snapshots === undefined) {
+      return { kind: 'error', message: 'write-back engine unavailable (ApplyService/SnapshotService not mounted)' }
+    }
+    try {
+      await snapshots.snapshot(change)
+      const result = await applyEngine.apply(change, force)
+      if (result.kind === 'applied') {
+        // 应用成功后,已知磁盘状态 = 当前 after(删除 → 文件不存在)。
+        change.diskBaseline = change.operation === 'delete' ? null : change.after
+        if (change.status !== 'applied') this.transition(change.id, 'applied')
+        else change.updatedAt = Date.now()
+        this.persist()
+        this.ctx.emit('change.updated', change)
+      }
+      // conflict / error:保持原状态不覆盖,UI 展示冲突与处理入口。
+      return result
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      return { kind: 'error', message }
+    }
+  }
+
+  /**
+   * 编辑保存 = 一步写盘:更新 after/diff,经 hash 守卫 + 引擎原子写,保持 applied。
+   * 冲突时返回 conflict(UI 提示「查看差异/强制写入」),不自动覆盖外部修改。
+   */
+  async saveEdit(id: string, after: string, force = false): Promise<ApplyResult> {
     const change = this.changes.get(id)
     if (change === undefined) {
       return { kind: 'error', message: `unknown change "${id}"` }
     }
-    if (change.status === 'applied') {
-      return { kind: 'error', message: `change "${id}" is already applied` }
-    }
-    // Command/external changes are recorded, not re-executed: approving one
-    // marks it applied directly (the agent already ran the command live).
     if (change.kind !== 'file') {
-      this.transition(id, 'applied')
-      this.ctx.emit('change.updated', change)
-      return { kind: 'applied', operation: 'execute' }
+      return { kind: 'error', message: `change "${id}" is not a file change` }
     }
-    // 3.x Apply 语义统一:策略 deny 是真正的 Guard(与批量一致),force 显式绕过;
-    // 变更保持 pending,由 UI 给出「仍然应用」路径。
-    if (!force) {
-      const policies: { evaluate: (changes: FileChange[]) => Promise<{ action: string; reason: string }[]> } | undefined = this.ctx.get('policies')
-      if (policies !== undefined) {
-        const evaluations = await policies.evaluate([change])
-        const denial = evaluations.find(evaluation => evaluation.action === 'deny')
-        if (denial !== undefined) {
-          return { kind: 'error', message: `policy deny: ${denial.reason}` }
-        }
-      }
+    change.after = after
+    change.diff = renderUnified(change.before, change.after)
+    change.hunkApplied = undefined
+    change.hunkEdits = undefined
+    change.updatedAt = Date.now()
+    this.persist()
+    return this.writeBack(change, force)
+  }
+
+  /**
+   * 恢复(撤销回滚):rolled_back → 把 agent 版本(after)写回磁盘并重新登记 applied。
+   * 守卫使用回滚后的磁盘基线(before),磁盘未被外部修改时直接通过。
+   */
+  async restore(id: string): Promise<ApplyResult> {
+    const change = this.changes.get(id)
+    if (change === undefined) {
+      return { kind: 'error', message: `unknown change "${id}"` }
     }
-    const applyEngine: ApplyService | undefined = this.ctx.get('applyEngine')
-    const snapshots: SnapshotService | undefined = this.ctx.get('snapshots')
-    if (applyEngine === undefined || snapshots === undefined) {
-      const message = 'apply engine unavailable (ApplyService/SnapshotService not mounted)'
-      this.transition(id, 'failed')
-      this.ctx.emit('change.updated', change, message)
-      return { kind: 'error', message }
+    if (change.kind !== 'file') {
+      return { kind: 'error', message: `change "${id}" is not a file change` }
     }
-    try {
-      // Qoder 块状态:文件变更存在逐块撤销/编辑时,「应用」写回重构后的内容
-      // (全部块应用 + 保留块内编辑),而不是原始 after —— 否则会覆盖用户
-      // 在 diff 里做的块级修改。写盘路径与 applyHunk/editHunk 完全一致。
-      if (change.hunkApplied !== undefined || change.hunkEdits !== undefined) {
-        const hunks = diffHunks(change.before, change.after)
-        const appliedAll = hunks.map(() => true)
-        const content = applyHunks(change.before, hunks, appliedAll, change.hunkEdits)
-        return this.writeHunk(change, hunks, appliedAll, change.hunkEdits ?? [], content, force)
-      }
-      await snapshots.snapshot(change)
-      const result = await applyEngine.apply(change, force)
-      if (result.kind === 'applied') {
-        // 3.x:应用成功后,已知磁盘状态 = 当前 after(删除 → 文件不存在)。
-        change.diskBaseline = change.operation === 'delete' ? null : change.after
-        this.transition(id, 'applied')
-        this.ctx.emit('change.updated', change)
-      } else if (result.kind === 'conflict') {
-        this.transition(id, 'failed')
-        this.ctx.emit('change.updated', change, 'external modification detected')
-      } else {
-        this.transition(id, 'failed')
-        this.ctx.emit('change.updated', change, result.message)
-      }
-      return result
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      this.transition(id, 'failed')
-      this.ctx.emit('change.updated', change, message)
-      return { kind: 'error', message }
-    }
+    return this.writeBack(change)
   }
 
   /**
@@ -506,34 +482,9 @@ export class ChangeService extends Service {
   }
 
   /**
-   * Replace a change's `after` text (editor edits), recompute the diff, and
-   * reset review status to pending. Editing an APPLIED change is refused:
-   * the workspace already holds the old content, so a silent `after` change
-   * would desync the record from disk — roll back first.
-   */
-  edit(id: string, after: string): FileChange | ActionError {
-    const change = this.changes.get(id)
-    if (change === undefined) {
-      return actionError(new Error(`change-center: unknown change "${id}"`))
-    }
-    if (change.status === 'applied') {
-      return actionError(new Error(`change-center: cannot edit "${id}" while applied — roll back first`))
-    }
-    change.after = after
-    change.diff = renderUnified(change.before, change.after)
-    change.status = 'pending'
-    // 全文编辑替换了 after ⇒ hunk 结构整体重算,块级状态作废。
-    change.hunkApplied = undefined
-    change.hunkEdits = undefined
-    change.updatedAt = Date.now()
-    this.persist()
-    return change
-  }
-
-  /**
    * 4.6 Conflict Center — 用户明确选择的版本写入磁盘(force,跳过守卫):
-   * 采用 Agent / 保留我的(拒绝)/ 合并文本都经此落地。写入前更新 after 与 diff,
-   * 使 rollback 语义与「用户编辑后应用」一致。
+   * 采用 Agent / 合并文本都经此落地。写入前更新 after 与 diff,
+   * 使 rollback 语义与「编辑保存」一致。
    */
   async resolve(id: string, content: string): Promise<ApplyResult> {
     const change = this.changes.get(id)
@@ -551,97 +502,7 @@ export class ChangeService extends Service {
     change.updatedAt = Date.now()
     this.persist()
     // force:用户已在冲突中心明确选择,不再需要守卫。
-    return this.apply(id, true)
-  }
-
-  /**
-   * Apply every pending change in a session (「全部应用」). File changes go
-   * through the apply/snapshot engines; command/external changes are marked
-   * applied without re-running them. Failures do not interrupt the rest;
-   * already-applied or non-pending changes are reported as skipped.
-   *
-   * Changes are processed newest-first with one change per path: superseded
-   * writes to the same file (the review surface shows only the latest) are
-   * reported as `superseded` so a bulk apply never re-writes an older
-   * intermediate state, and the result counters stay disjoint. These
-   * superseded old writes are then REMOVED from the store (Phase C) — they
-   * are obsolete (rollback/apply always operate on the newest record) and
-   * otherwise pile up as forever-pending.
-   *
-   * Policy gating: when the policy engine is mounted, a pending change hit by
-   * a `deny` policy is NOT applied — it stays pending and lands in `blocked`
-   * (the user can adjust the policy or handle the change individually).
-   *
-   * @param force - bypass the deny gate and the external-modification guard
-   *   (Vibe UI 「仍然全部应用」); mirrors the single-change `apply(force)`.
-   */
-  async applyAllPending(sessionId: string, force = false): Promise<ApplyAllResult> {
-    const result: ApplyAllResult = { applied: [], skipped: [], superseded: [], failed: [], blocked: [], prepared: 0 }
-    const seenPaths = new Set<string>()
-    const policies = this.ctx.get('policies')
-    const applyEngine: ApplyService | undefined = this.ctx.get('applyEngine')
-    const pendingList: FileChange[] = []
-    // Phase A — Prepare:去重、跳过、策略、hash 预检全部先做完,任何冲突在写盘前暴露。
-    for (const change of this.listBySession(sessionId)) {
-      if (seenPaths.has(change.path)) {
-        result.superseded.push(change.id)
-        continue
-      }
-      seenPaths.add(change.path)
-      if (change.status !== 'pending') {
-        result.skipped.push(change.id)
-        continue
-      }
-      if (!force && policies !== undefined) {
-        const evaluations = await policies.evaluate([change])
-        const denial = evaluations.find(evaluation => evaluation.action === 'deny')
-        if (denial !== undefined) {
-          result.blocked.push({ id: change.id, message: `${denial.policyId}: ${denial.reason}` })
-          continue
-        }
-      }
-      // 4.5:文件变更先 preview(不写盘);冲突直接标记 failed,不进入执行。
-      if (change.kind === 'file' && applyEngine !== undefined) {
-        const preview = await applyEngine.preview(change, force)
-        if (preview.kind === 'conflict') {
-          this.transition(change.id, 'failed')
-          this.ctx.emit('change.updated', change, 'external modification detected')
-          result.failed.push({
-            id: change.id,
-            message: `external modification detected (current ${preview.currentHash.slice(0, 8)} ≠ expected ${preview.beforeHash.slice(0, 8)})`,
-          })
-          continue
-        }
-        if (preview.kind === 'error') {
-          // 与冲突分支一致:预检失败也标记 failed,避免变更停留 pending。
-          this.transition(change.id, 'failed')
-          this.ctx.emit('change.updated', change, preview.message)
-          result.failed.push({ id: change.id, message: preview.message })
-          continue
-        }
-      }
-      pendingList.push(change)
-    }
-    result.prepared = pendingList.length
-    // Phase B — Commit:只执行通过预检的变更(pending 直接 apply)。
-    for (const change of pendingList) {
-      const outcome = await this.apply(change.id, force)
-      if (outcome.kind === 'applied') {
-        result.applied.push(change.id)
-      } else {
-        const message = outcome.kind === 'conflict'
-          ? `external modification detected (current ${outcome.currentHash.slice(0, 8)} ≠ expected ${outcome.beforeHash.slice(0, 8)})`
-          : outcome.message
-        result.failed.push({ id: change.id, message })
-      }
-    }
-    // Phase C — Cleanup:被同一路径新写入覆盖的旧记录已无意义
-    // (回滚/应用都以最新一条为准),从存储移除,避免永久堆积 pending。
-    for (const id of result.superseded) {
-      this.changes.delete(id)
-    }
-    if (result.superseded.length > 0) this.persist()
-    return result
+    return this.writeBack(change, true)
   }
 
   /**

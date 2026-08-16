@@ -21,7 +21,7 @@ import type { FileChange } from '../models/FileChange.ts'
 import type { ChangeSession } from '../models/ChangeSession.ts'
 import type { ChangeEvent, ChangeRisk, ReviewFinding, ReviewResult, VerificationTask } from '../models/Phase3.ts'
 import type { ChangePolicy, FixRequest, FixResult } from '../models/Phase4.ts'
-import type { ApplyAllResult, RollbackAllResult } from '../services/ChangeService.ts'
+import type { RollbackAllResult } from '../services/ChangeService.ts'
 import type { Job } from '../services/JobService.ts'
 import { ChangeCenterSection } from './ChangeCenterSection.tsx'
 import { ChangesTab, type ChangesTabInjected } from './ChangesTab.tsx'
@@ -62,9 +62,6 @@ export type WireChange = FileChange
 
 /** Wire shape of a change session — the host {@link ChangeSession} model. */
 export type WireSession = ChangeSession
-
-/** Wire shape of an apply-all result — the host type. */
-export type WireApplyAllResult = ApplyAllResult
 
 /** Wire shape of a rollback-all result — the host type. */
 export type WireRollbackAllResult = RollbackAllResult
@@ -173,19 +170,17 @@ export interface ChangeCenterApi {
   analytics(): Promise<WireAnalytics>
   listSessions(params?: PageParams): Promise<WirePage<WireSession>>
   sessionChanges(sessionId: string, params?: PageParams): Promise<WirePage<WireChange>>
-  changeAction(id: string, action: 'rollback'): Promise<ActionResult>
-  applyChange(id: string, force?: boolean): Promise<ActionResult>
+  changeAction(id: string, action: 'rollback' | 'restore'): Promise<ActionResult>
   /** Qoder 风格:应用或撤销 diff 中单个 hunk(revert=true 撤销该块)。 */
   applyHunk(id: string, index: number, revert?: boolean, force?: boolean): Promise<ActionResult>
   /** Qoder 风格:块内编辑 —— 用 `lines` 替换某个 hunk 的写入内容并写回。 */
   editHunk(id: string, index: number, lines: string[], force?: boolean): Promise<ActionResult>
-  editChange(id: string, after: string): Promise<unknown>
+  /** 5.x:编辑保存 = 一步写盘(更新记录 + hash 守卫 + 引擎原子写),保持 applied。 */
+  editChange(id: string, after: string, force?: boolean): Promise<ActionResult>
   /** 4.6:读取磁盘当前版本(冲突中心对比用)。 */
   changeCurrent(id: string): Promise<{ exists: boolean; content: string | null }>
   /** 4.6:写入用户明确选择的版本(冲突解决)。 */
   resolveChange(id: string, content: string): Promise<ActionResult>
-  /** 全部接收并应用;force 时绕过 deny 门禁与外部修改守卫(「仍然全部应用」)。 */
-  applyAllPending(sessionId: string, force?: boolean): Promise<WireApplyAllResult>
   rollbackAll(sessionId: string): Promise<WireRollbackAllResult>
   gitStatus(sessionId: string): Promise<GitResponse>
   gitDiff(sessionId: string): Promise<GitResponse>
@@ -247,17 +242,14 @@ export function apiOf(): ChangeCenterApi {
       .then(body => toPage((body as { changes: WireChange[]; total: number }).changes, body as { total: number })),
     changeAction: (id, action) =>
       postJson(`/api/change-center/changes/${id}/${action}`).then(body => body as ActionResult),
-    applyChange: (id, force) =>
-      postJson(`/api/change-center/changes/${id}/apply${force ? '?force=1' : ''}`).then(body => body as ActionResult),
     applyHunk: (id, index, revert, force) =>
       postJson(`/api/change-center/changes/${id}/hunk`, { index, revert: revert ?? false, force: force ?? false }).then(body => body as ActionResult),
     editHunk: (id, index, lines, force) =>
       postJson(`/api/change-center/changes/${id}/hunk`, { index, lines, force: force ?? false }).then(body => body as ActionResult),
-    editChange: (id, after) => postJson(`/api/change-center/changes/${id}/edit`, { after }),
+    editChange: (id, after, force) =>
+      postJson(`/api/change-center/changes/${id}/edit`, { after, force: force ?? false }).then(body => body as ActionResult),
     changeCurrent: (id) => getJson(`/api/change-center/changes/${id}/current`).then(body => body as { exists: boolean; content: string | null }),
     resolveChange: (id, content) => postJson(`/api/change-center/changes/${id}/resolve`, { content }).then(body => body as ActionResult),
-    applyAllPending: (sessionId, force) =>
-      postJson(`/api/change-center/sessions/${sessionId}/apply-all${force ? '?force=1' : ''}`).then(body => (body as { result: WireApplyAllResult }).result),
     rollbackAll: (sessionId) =>
       postJson(`/api/change-center/sessions/${sessionId}/rollback-all`).then(body => (body as { result: WireRollbackAllResult }).result),
     gitStatus: (sessionId) => getJson(`/api/change-center/sessions/${sessionId}/git`).then(body => body as GitResponse),

@@ -41,8 +41,6 @@ function statusClass(status: string): string {
 export function ReviewBar(props: ReviewBarProps): ReactElement {
   const { change, api, onAction, onError, disabled = false, onPrev, onNext, onApplied } = props
   const [conflict, setConflict] = useState<ActionResult | null>(null)
-  // 3.3:策略 deny 是真正的 Guard —— 给「仍然应用(force)」路径。
-  const [deny, setDeny] = useState<{ message: string } | null>(null)
   // 4.6 Conflict Center:对比视图状态。
   const [viewingConflict, setViewingConflict] = useState(false)
   const [current, setCurrent] = useState<{ exists: boolean; content: string | null } | null>(null)
@@ -64,7 +62,6 @@ export function ReviewBar(props: ReviewBarProps): ReactElement {
   const run = async (action: () => Promise<unknown>, operation?: 'apply' | 'rollback'): Promise<void> => {
     setBusy(true)
     setConflict(null)
-    setDeny(null)
     setViewingConflict(false)
     setLastError(null)
     try {
@@ -72,10 +69,7 @@ export function ReviewBar(props: ReviewBarProps): ReactElement {
       const message = (result as { message?: string }).message ?? ''
       if (result.kind === 'conflict' || (result as { error?: string }).error === 'external modification detected') {
         setConflict(result)
-        setLastError('外部修改冲突：磁盘内容与捕获版本不一致（可「查看差异」或「强制应用」）')
-      } else if (result.kind === 'error' && message.startsWith('policy deny')) {
-        // 3.3:策略拦截 —— 变更保持 pending,提供「仍然应用」。
-        setDeny({ message })
+        setLastError('外部修改冲突：磁盘内容与捕获版本不一致（可「查看差异」或「强制写入」）')
       } else if (result.kind === 'missing-snapshot') {
         onError('回滚失败：快照不存在（文件保持当前状态）')
       } else if (result.kind === 'error') {
@@ -93,8 +87,7 @@ export function ReviewBar(props: ReviewBarProps): ReactElement {
     }
   }
 
-  // 按钮矩阵来自单一事实源 actionsFor(与状态机 TRANSITIONS 一致);
-  // failed 不显示「接受」:批量中失败的变更已被接受。
+  // 按钮矩阵来自单一事实源 actionsFor(5.x:capture 即登记,只剩 回滚/恢复)。
   const actions = actionsFor(change.status)
   const meta = statusMeta(change.status)
   const inert = busy || disabled
@@ -122,36 +115,21 @@ export function ReviewBar(props: ReviewBarProps): ReactElement {
         createElement('span', { className: css.toolMeta }, `通过 ${change.toolName}`),
       ),
       createElement('div', { className: css.actions },
-        actions.canApply
-          ? createElement('button', {
-            onClick: () => run(() => api.applyChange(change.id), 'apply'),
-            disabled: inert,
-            className: baseCss.buttonPrimary,
-            title: '文件已由 agent 写入磁盘;此操作做冲突/策略检查并登记,之后可回滚',
-          }, '应用')
-          : null,
-        actions.canRetryApply
-          ? createElement('button', {
-            onClick: () => run(() => api.applyChange(change.id), 'apply'),
-            disabled: inert,
-            className: baseCss.buttonPrimary,
-            title: '上次应用失败;重试做冲突/策略检查后登记',
-          }, '重试应用')
-          : null,
         actions.canRollback
           ? createElement('button', {
             onClick: () => run(() => api.changeAction(change.id, 'rollback'), 'rollback'),
             disabled: inert,
             className: baseCss.buttonGhost,
+            title: '撤销本次修改:恢复捕获前的版本,之后可「恢复」',
           }, '回滚')
           : null,
         actions.canReapply
           ? createElement('button', {
-            onClick: () => run(() => api.applyChange(change.id), 'apply'),
+            onClick: () => run(() => api.changeAction(change.id, 'restore'), 'apply'),
             disabled: inert,
             className: baseCss.buttonPrimary,
-            title: '回滚后再应用,恢复为修改后的内容并登记',
-          }, '重新应用')
+            title: '撤销回滚:把 agent 版本写回磁盘',
+          }, '恢复')
           : null,
       ),
     ),
@@ -159,7 +137,7 @@ export function ReviewBar(props: ReviewBarProps): ReactElement {
       ? createElement('div', { className: css.conflict },
         createElement('div', { className: css.conflictTitle }, '⚠ 文件已被外部修改'),
         createElement('div', { className: css.conflictDesc },
-          '当前工作区文件与捕获时的版本不一致，直接应用会覆盖外部修改。'),
+          '当前工作区文件与捕获时的版本不一致，直接写入会覆盖外部修改。'),
         // S-2:hash 差异一目了然(前/后/磁盘当前)。
         conflict.currentHash !== undefined && conflict.beforeHash !== undefined
           ? createElement('div', { className: css.conflictHash },
@@ -176,9 +154,9 @@ export function ReviewBar(props: ReviewBarProps): ReactElement {
             className: baseCss.buttonGhost,
           }, '查看差异'),
           createElement('button', {
-            onClick: () => run(() => api.applyChange(change.id, true), 'apply'),
+            onClick: () => run(() => api.editChange(change.id, change.after ?? '', true), 'apply'),
             className: baseCss.buttonPrimary,
-          }, '强制应用'),
+          }, '强制写入'),
         ),
       )
       : null,
@@ -214,36 +192,18 @@ export function ReviewBar(props: ReviewBarProps): ReactElement {
               className: baseCss.buttonGhost,
             }, '合并'),
           createElement('button', {
-            onClick: () => run(() => api.applyChange(change.id, true), 'apply'),
+            onClick: () => run(() => api.editChange(change.id, change.after ?? '', true), 'apply'),
             className: baseCss.buttonPrimary,
           }, '采用Agent'),
         ),
       )
       : null,
-    // 3.3:策略 deny —— 「仍然应用(force)」需用户明确选择。
-    deny !== null
-      ? createElement('div', { className: css.denyBlock },
-        createElement('div', { className: css.denyTitle }, '⊘ 此变更被策略阻止'),
-        createElement('div', { className: css.denyDesc },
-          deny.message.replace(/^policy deny:\s*/, '')),
-        createElement('div', { className: css.conflictActions },
-          createElement('button', {
-            onClick: () => setDeny(null),
-            className: baseCss.buttonGhost,
-          }, '关闭'),
-          createElement('button', {
-            onClick: () => run(() => api.applyChange(change.id, true), 'apply'),
-            className: baseCss.buttonPrimary,
-          }, '仍然应用'),
-        ),
-      )
-      : null,
-    // S-3:应用失败的恢复提示(带具体原因,便于判断是冲突/权限/策略)。
+    // S-3:写盘失败的恢复提示(带具体原因,便于判断是冲突/权限)。
     change.status === 'failed'
       ? createElement('div', { className: css.failedHint },
         lastError !== null && lastError.length > 0
-          ? `应用失败：${lastError}。可「重试应用」；仍失败可在编辑器中修改后重试。`
-          : '应用失败:可「重试应用」;仍失败可在编辑器中修改后重试。')
+          ? `写盘失败：${lastError}。可「查看差异」后强制写入或编辑后保存。`
+          : '写盘失败:可「查看差异」后强制写入,或编辑后保存。')
       : null,
   )
 }

@@ -85,7 +85,7 @@ describe('ToolCapture e2e (real write tool)', () => {
     expect(change.operation).toBe('create')
     expect(change.before).toBeNull()
     expect(change.after).toContain('public class UserService')
-    expect(change.status).toBe('pending')
+    expect(change.status).toBe('applied')
   })
 
   it('captures an overwrite as modify with before/after diff', async () => {

@@ -22,6 +22,8 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { applyCapture } from '../src/capture/ToolCapture.ts'
 import { ChangeService } from '../src/services/ChangeService.ts'
 import { SessionService } from '../src/services/SessionService.ts'
+import { ApplyService } from '../src/services/ApplyService.ts'
+import { SnapshotService } from '../src/services/SnapshotService.ts'
 import { AIReviewService } from '../src/review/AIReviewService.ts'
 import { AIFixService } from '../src/fix/AIFixService.ts'
 import { ReviewFixLoopService } from '../src/loop/ReviewFixLoopService.ts'
@@ -96,21 +98,23 @@ describe('CommandChange capture (real bash tool)', () => {
     expect(commandChange?.operation).toBe('execute')
   }, 20000)
 
-  it('marks a command change applied without re-running it', async () => {
+  it('captures a command change as applied without re-running it', async () => {
     const ctx = await setup()
     const agent = agentWithSession('cmd-2')
     await execute(ctx, 'bash', { command: 'git checkout feature', description: 'switch branch' }, agent)
     const commandChange = ctx.changeCenter.listBySession('cmd-2').find(c => c.kind === 'command')!
-    const result = await ctx.changeCenter.apply(commandChange.id)
-    expect(result.kind).toBe('applied')
+    // 5.x:capture 即登记 —— 命令变更记录即 applied(不重新执行)。
     expect(ctx.changeCenter.get(commandChange.id)?.status).toBe('applied')
   }, 20000)
 })
 
 describe('AIFixService with fake llm adapter', () => {
-  it('records a fix as a new pending change via edit()', async () => {
+  it('fixes a finding by writing the fixed content (编辑保存语义)', async () => {
     const ctx = new Context()
+    await ctx.plugin(LocalFileSystem, { cwd: tempDir })
     await ctx.plugin(ChangeService)
+    await ctx.plugin(ApplyService)
+    await ctx.plugin(SnapshotService)
     await ctx.plugin(AIReviewService)
     // Provide a fake llm stream and default model BEFORE mounting aiFix, so
     // its optional ctx.get('llm') resolves to the stub.
@@ -125,6 +129,11 @@ describe('AIFixService with fake llm adapter', () => {
     })
     await ctx.plugin(AIFixService)
 
+    // 磁盘 = after(capture 约定),fix 在磁盘上真实写盘。
+    const { mkdirSync } = await import('node:fs')
+    mkdirSync(join(tempDir, 'src'), { recursive: true })
+    const target = join(tempDir, 'src', 'Bug.java')
+    writeFileSync(target, 'public class Bug {}\n')
     const change = ctx.changeCenter.record({
       sessionId: 'fix-1', cwd: tempDir, kind: 'file',
       path: 'src/Bug.java', operation: 'modify',
@@ -139,13 +148,12 @@ describe('AIFixService with fake llm adapter', () => {
     const result = await ctx.aiFix.fix('review-1', finding, change, ctx.changeCenter)
     expect(result.fixRequestId).toBeDefined()
     expect(result.changeIds).toContain(change.id)
-    // The change's after was replaced and reset to pending.
+    // The change's after was replaced and written to disk.
     const updated = ctx.changeCenter.get(change.id)!
     expect(updated.after).toContain('public class Fixed {}')
-    expect(updated.status).toBe('pending')
-    // Nothing was written to disk.
-    const { existsSync } = await import('node:fs')
-    expect(existsSync(join(tempDir, 'src/Bug.java'))).toBe(false)
+    expect(updated.status).toBe('applied')
+    const { readFileSync } = await import('node:fs')
+    expect(readFileSync(target, 'utf8')).toContain('public class Fixed {}')
   })
 })
 

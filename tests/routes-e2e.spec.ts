@@ -17,6 +17,7 @@ import SubprocessLocal from '@deepseek-ai/dsh-subprocess-local'
 import BashLocal from '@deepseek-ai/dsh-bash-local'
 import WebServer from '@deepseek-ai/dsh-host-webserver'
 import { applyRoutes } from '../src/api/routes.ts'
+import { waitForSnapshot } from './helpers/waitSnapshot.ts'
 import { ChangeService } from '../src/services/ChangeService.ts'
 import { SessionService } from '../src/services/SessionService.ts'
 import { ApplyService } from '../src/services/ApplyService.ts'
@@ -144,38 +145,20 @@ function record(agentKey: string, path: string, operation: 'create' | 'modify' |
 }
 
 describe('session-action over HTTP (agent-key mapping)', () => {
-  it('apply-all reaches the change store through the change-session id', async () => {
-    const agentKey = `e2e-batch-${Date.now()}`
-    const target = join(tempDir, 'B.java')
-    writeFileSync(target, 'new\n')
-    const changeId = ctx.changeCenter.record({
-      sessionId: agentKey, cwd: tempDir, kind: 'file',
-      path: target, operation: 'create', before: null, after: 'new\n',
-      source: 'agent', toolName: 'write',
-    }).id
-    const sessionId = ctx.changeSessions.list()[0]!.id
-    expect(sessionId).not.toBe(agentKey)
-
-    const { status, body } = await postJson(`/sessions/${sessionId}/apply-all`)
-    expect(status).toBe(200)
-    const result = (body as { result: { applied: string[] } }).result
-    expect(result.applied).toContain(changeId)
-    expect(ctx.changeCenter.get(changeId)?.status).toBe('applied')
-  })
-
   it('rollback-all restores the file over HTTP', async () => {
     const agentKey = `e2e-rollback-${Date.now()}`
     const target = join(tempDir, 'C.java')
     // Capture-after semantics: the tool already wrote the file, so the disk
-    // holds `after` at apply time; the snapshot preserves the true `before`.
+    // holds `after` at capture time; capture 即登记(applied)并建 before 快照。
     writeFileSync(target, 'edited\n')
     ctx.changeCenter.record({
       sessionId: agentKey, cwd: tempDir, kind: 'file',
       path: target, operation: 'modify', before: 'original\n', after: 'edited\n',
       source: 'agent', toolName: 'edit',
     })
+    const recorded = ctx.changeCenter.list()[0]!
+    await waitForSnapshot(recorded.sessionId, recorded.id)
     const sessionId = ctx.changeSessions.list()[0]!.id
-    await postJson(`/sessions/${sessionId}/apply-all`)
     const { body } = await postJson(`/sessions/${sessionId}/rollback-all`)
     const result = (body as { result: { rolledBack: string[] } }).result
     expect(result.rolledBack).toHaveLength(1)
@@ -184,7 +167,7 @@ describe('session-action over HTTP (agent-key mapping)', () => {
   })
 
   it('reports an unknown session instead of silently doing nothing', async () => {
-    const { status, body } = await postJson('/sessions/session-999/apply-all')
+    const { status, body } = await postJson('/sessions/session-999/rollback-all')
     expect(status).toBe(200)
     expect((body as { error?: string }).error).toContain('unknown session')
   })
@@ -249,6 +232,10 @@ describe('policy evaluation route', () => {
 describe('fix loop route (key mapping)', () => {
   it('fixes a finding over HTTP and reports the fixed change', async () => {
     const agentKey = `e2e-loop-${Date.now()}`
+    // 磁盘 = after(capture 约定);fix 写盘守卫需磁盘匹配基线。
+    const { mkdirSync } = await import('node:fs')
+    mkdirSync(join(tempDir, 'src'), { recursive: true })
+    writeFileSync(join(tempDir, 'src', 'Bug.java'), 'y\n')
     const changeId = ctx.changeCenter.record({
       sessionId: agentKey, cwd: tempDir, kind: 'file',
       path: 'src/Bug.java', operation: 'modify', before: 'x\n', after: 'y\n',
@@ -276,7 +263,7 @@ describe('fix loop route (key mapping)', () => {
 
 describe('method checks and pagination', () => {
   it('rejects GET on action routes and POST on read routes', async () => {
-    const { status: getOnPost } = await getJson('/sessions/s-1/apply-all')
+    const { status: getOnPost } = await getJson('/sessions/s-1/rollback-all')
     expect(getOnPost).toBe(405)
     const { status: postOnGet } = await postJson('/sessions')
     expect(postOnGet).toBe(405)

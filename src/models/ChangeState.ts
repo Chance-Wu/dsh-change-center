@@ -1,5 +1,5 @@
 /**
- * The single source of truth for the change state machine (3.x: 状态机收敛).
+ * The single source of truth for the change state machine.
  *
  * Every surface derives from this one definition — the host transition
  * table (`ChangeService`), the client action matrix (`actionsFor`), and the
@@ -13,21 +13,21 @@ import type { ChangeStatus } from './FileChange.ts'
 /** User-facing actions the state machine exposes to the UI/API. */
 export type ChangeAction =
   | 'apply'
-  | 'retry-apply'
   | 'rollback'
 
 /**
- * Machine truth: legal target statuses per status. The host enforces these;
- * `failed` covers apply-attempt failures. Only two operations remain:
- * 应用(pending/failed/rolled_back → applied)与 回滚(applied → rolled_back)。
+ * Machine truth: legal target statuses per status.
+ *
+ * 5.x 流程收敛:capture 即登记 —— agent 工具写盘后记录直接标记 `applied`,
+ * 不存在「确认登记型」的应用;状态机只有 回滚(applied→rolled_back) 与
+ * 恢复(rolled_back→applied) 两个写盘操作。`pending`/`failed` 是历史状态
+ * (旧版本记录兼容展示),不再产生、无合法转移。
  */
 export const CHANGE_TRANSITIONS: Record<ChangeStatus, ChangeStatus[]> = {
-  pending: ['applied', 'failed'],
-  // failed → failed 幂等:重试应用时引擎再次失败会走到同一分支,重复转移
-  // 不应抛「非法转移」,而是返回引擎结果(如仍冲突)。
-  failed: ['applied', 'failed'],
+  pending: [],
+  failed: [],
   applied: ['rolled_back'],
-  // 回滚后可再次应用(替代旧 repend 中间态)。
+  // 回滚后可恢复(写回 agent 版本,即撤销回滚)。
   rolled_back: ['applied'],
 }
 
@@ -37,10 +37,10 @@ export const CHANGE_TRANSITIONS: Record<ChangeStatus, ChangeStatus[]> = {
  * future entry point all consume it — the UI never decides action legality.
  */
 export const CHANGE_ACTIONS: Record<ChangeStatus, ChangeAction[]> = {
-  pending: ['apply'],
-  failed: ['retry-apply'],
+  pending: [],
+  failed: [],
   applied: ['rollback'],
-  // 回滚后主操作即「重新应用」。
+  // 回滚后主操作即「恢复」(写回 agent 版本)。
   rolled_back: ['apply'],
 }
 

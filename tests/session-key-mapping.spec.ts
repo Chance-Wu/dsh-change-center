@@ -14,8 +14,11 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
+import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import { ChangeService } from '../src/services/ChangeService.ts'
 import { SessionService } from '../src/services/SessionService.ts'
+import { ApplyService } from '../src/services/ApplyService.ts'
+import { SnapshotService } from '../src/services/SnapshotService.ts'
 import { RiskService } from '../src/risk/RiskService.ts'
 import { AIReviewService } from '../src/review/AIReviewService.ts'
 import { AIFixService } from '../src/fix/AIFixService.ts'
@@ -83,8 +86,11 @@ describe('RiskService.analyze key mapping', () => {
 describe('ReviewFixLoopService key mapping', () => {
   it('fixes a finding when run with the change-session id', async () => {
     const ctx = new Context()
+    await ctx.plugin(LocalFileSystem, { cwd: tempDir })
     await ctx.plugin(ChangeService)
     await ctx.plugin(SessionService)
+    await ctx.plugin(ApplyService)
+    await ctx.plugin(SnapshotService)
     await ctx.plugin(AIReviewService)
     // Fake llm: review #1 reports an error finding; the fix call returns a
     // replacement file; review #2 comes back clean.
@@ -117,6 +123,10 @@ describe('ReviewFixLoopService key mapping', () => {
     await ctx.plugin(ReviewFixLoopService)
 
     const { change, changeSession } = recordWithSession(ctx, 'loop-key-1', 'src/Bug.java', 'modify')
+    // 磁盘 = after(capture 约定);fix 写盘前守卫需磁盘匹配基线。
+    const { mkdirSync, writeFileSync } = await import('node:fs')
+    mkdirSync(join(tempDir, 'src'), { recursive: true })
+    writeFileSync(join(tempDir, 'src', 'Bug.java'), 'new\n')
 
     const result = await ctx.fixLoop.run(changeSession.id, tempDir, 3)
     // With the mapping broken the loop never finds the change to fix:

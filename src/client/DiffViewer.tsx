@@ -198,12 +198,12 @@ export function DiffViewer(props: DiffViewerProps): ReactElement {
         createElement('div', { className: css.editorActions },
           // 3.0.9:弱视觉 —— 脏状态由文件名旁的小圆点表达,这里只保留动作。
           justSaved
-            ? createElement('span', { className: css.savedHint }, '✓ 已保存并应用')
+            ? createElement('span', { className: css.savedHint }, '✓ 已保存并写入')
             : null,
           dirty
             ? createElement('button', { onClick: discard, disabled, className: baseCss.buttonGhost }, '放弃')
             : null,
-          createElement('button', { onClick: save, disabled: disabled || !dirty, className: baseCss.buttonPrimary }, '保存并应用'),
+          createElement('button', { onClick: save, disabled: disabled || !dirty, className: baseCss.buttonPrimary }, '保存并写入'),
         ),
       )
       ),
