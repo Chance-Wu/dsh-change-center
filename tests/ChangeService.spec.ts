@@ -139,24 +139,61 @@ describe('ChangeService', () => {
     expect(result.superseded).toHaveLength(0)
   })
 
-  it('accept-all-and-apply processes one change per path (superseded writes skipped)', async () => {
+  it('同一会话同路径多次写入合并为一条记录(只 diff 最新);applyAll 处理合并后的记录', async () => {
     const ctx = await setup()
-    // 同一文件写两次:先 change-1(旧),后 change-2(新)。
-    ctx.changeCenter.record({
+    // 同一文件写两次:第二次合并进第一条,不再产生第二条记录。
+    const first = ctx.changeCenter.record({
       sessionId: 'batch-c', cwd: '/tmp/ws', path: 'a.txt', operation: 'modify',
       before: 'x\n', after: 'y\n', source: 'agent', toolName: 'edit',
     })
     await new Promise(resolve => setTimeout(resolve, 2))
-    ctx.changeCenter.record({
+    const merged = ctx.changeCenter.record({
       sessionId: 'batch-c', cwd: '/tmp/ws', path: 'a.txt', operation: 'modify',
       before: 'y\n', after: 'z\n', source: 'agent', toolName: 'edit',
     })
+    // 同一条记录:保留最初 before,after/diff 为最新(只 diff 最新的)。
+    expect(merged.id).toBe(first.id)
+    const change = ctx.changeCenter.get(first.id)
+    expect(change?.before).toBe('x\n')
+    expect(change?.after).toBe('z\n')
+    expect(change?.diff).toContain('-x')
+    expect(change?.diff).toContain('+z')
+    expect(ctx.changeCenter.listBySession('batch-c')).toHaveLength(1)
+    // 无引擎挂载:apply 失败 → failed;只有一条记录,无 superseded。
     const result = await ctx.changeCenter.applyAllPending('batch-c')
-    // 最新一条被处理(无引擎 → 失败);旧路径写入归入 superseded。
     expect(result.failed).toHaveLength(1)
-    expect(result.failed[0]?.id).toBe('change-2')
-    expect(result.superseded).toEqual(['change-1'])
-    expect(result.skipped).toHaveLength(0)
+    expect(result.failed[0]?.id).toBe(first.id)
+    expect(result.superseded).toHaveLength(0)
+  })
+
+  it('合并后状态回到 pending,块级状态作废,磁盘基线取最新', async () => {
+    const ctx = await setup()
+    const id = ctx.changeCenter.record({
+      sessionId: 'm-1', cwd: '/tmp/ws', path: 'f.ts', operation: 'modify',
+      before: 'a\n', after: 'b\n', source: 'agent', toolName: 'edit',
+    }).id
+    // 模拟已确认(应用过 + 做过块级操作)。
+    const confirmed = ctx.changeCenter.get(id)!
+    confirmed.status = 'applied'
+    confirmed.hunkApplied = [true]
+    confirmed.hunkEdits = [['b']]
+    // 再次写入同一文件 → 合并:状态回到 pending、块级状态清空、基线取最新。
+    ctx.changeCenter.record({
+      sessionId: 'm-1', cwd: '/tmp/ws', path: 'f.ts', operation: 'modify',
+      before: 'b\n', after: 'c\n', source: 'agent', toolName: 'edit',
+    })
+    const merged = ctx.changeCenter.get(id)!
+    expect(merged.status).toBe('pending')
+    expect(merged.hunkApplied).toBeUndefined()
+    expect(merged.hunkEdits).toBeUndefined()
+    expect(merged.diskBaseline).toBe('c\n')
+    expect(merged.after).toBe('c\n')
+    // 不同会话的同路径写入不合并。
+    const other = ctx.changeCenter.record({
+      sessionId: 'm-2', cwd: '/tmp/ws', path: 'f.ts', operation: 'modify',
+      before: 'c\n', after: 'd\n', source: 'agent', toolName: 'edit',
+    })
+    expect(other.id).not.toBe(id)
   })
 
   it('accept-all-and-apply holds back deny-policy changes as blocked', async () => {

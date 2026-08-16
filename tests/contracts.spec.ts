@@ -244,36 +244,38 @@ describe('B + C. Apply / Rollback 契约(真实文件系统)', () => {
 })
 
 describe('D. Batch 契约', () => {
-  it('结果计数互斥且覆盖全部变更(最新胜出/superseded/deny/skipped)', async () => {
+  it('批量契约:同路径多次写入合并为一条;deny → blocked;非待审 → skipped', async () => {
     const ctx = await fullSetup()
     const sessionId = 'batch-1'
-    // c1(旧):同路径旧写入 → superseded;c2(新):待审正常 → applied;
-    // c3:命中 deny(src/security 删除)→ blocked;c4:已 approved → skipped。
+    // c1:同一路径写两次 → 合并为一条记录(保留最初 before,after 取最新)。
     const appTarget = join(tempDir, 'app.ts')
-    writeFileSync(appTarget, 'changed\n')
-    const c1 = recordFile(ctx, sessionId, appTarget, { before: 'old\n', after: 'older\n' })
-    const c2 = recordFile(ctx, sessionId, appTarget)
+    const merged = recordFile(ctx, sessionId, appTarget, { before: 'old\n', after: 'older\n' })
+    const again = recordFile(ctx, sessionId, appTarget, { before: 'older\n', after: 'changed\n' })
+    expect(again).toBe(merged)
+    expect(ctx.changeCenter.get(merged)?.before).toBe('old\n')
+    expect(ctx.changeCenter.get(merged)?.after).toBe('changed\n')
+    // c3:命中 deny(src/security 删除)→ blocked。
     const c3 = recordFile(ctx, sessionId, join(tempDir, 'src', 'security', 'Config.java'), { operation: 'delete', before: 'x\n', after: null })
+    // c4:先应用掉(非 pending → skipped)。
     const c4 = recordFile(ctx, sessionId, join(tempDir, 'skip.ts'))
-    // 5.x:无 approve/reject;先把 c4 应用掉(非 pending → skipped)。
     writeFileSync(join(tempDir, 'skip.ts'), 'changed\n')
     await ctx.changeCenter.apply(c4)
+    // 磁盘与合并后的磁盘基线一致,preview 才能通过。
+    writeFileSync(appTarget, 'changed\n')
 
     const result = await ctx.changeCenter.applyAllPending(sessionId)
     const all = [...result.applied, ...result.failed.map(f => f.id), ...result.blocked.map(b => b.id), ...result.skipped, ...result.superseded]
     // 互斥:无重复。
     expect(new Set(all).size).toBe(all.length)
-    // 覆盖:全部 4 个变更恰好出现在一个桶里。
-    expect(all).toHaveLength(4)
-    expect(all.sort()).toEqual([c1, c2, c3, c4].sort())
-    // 语义:c1(旧)superseded,c2(新)applied,c3 deny → blocked,c4 skipped。
-    expect(result.applied).toContain(c2)
-    expect(result.superseded).toContain(c1)
+    // 覆盖:合并后共 3 个变更(merged / c3 / c4)。
+    expect(all).toHaveLength(3)
+    expect(all.sort()).toEqual([merged, c3, c4].sort())
+    // 语义:merged applied,c3 deny → blocked,c4 skipped。
+    expect(result.applied).toContain(merged)
     expect(result.blocked.some(b => b.id === c3)).toBe(true)
     expect(result.skipped).toContain(c4)
-    // Phase C:被覆盖的旧写入 c1 从存储移除(不再堆积 pending),其余保留。
-    expect(ctx.changeCenter.get(c1)).toBeUndefined()
-    expect(ctx.changeCenter.get(c2)?.status).toBe('applied')
+    expect(result.superseded).toHaveLength(0)
+    expect(ctx.changeCenter.get(merged)?.status).toBe('applied')
     expect(ctx.changeCenter.get(c3)?.status).toBe('pending')
     expect(ctx.changeCenter.get(c4)?.status).toBe('applied')
   })

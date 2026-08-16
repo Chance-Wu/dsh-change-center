@@ -170,20 +170,48 @@ export class ChangeService extends Service {
     void this.ensureLoaded().then(() => this.store.save([...this.changes.values()]))
   }
 
-  /** Record a captured change and emit `change.created`. */
+  /**
+   * Record a captured change and emit `change.created`.
+   *
+   * 同一会话内对同一文件的多次写入会**合并**为一条记录:保留最初的 `before`,
+   * `after`/`diff` 更新为最新写入,状态回到 pending(新内容需重新确认),
+   * 块级状态作废。评审面本来按路径只显示最新一条,合并避免多条记录堆积,
+   * 也让 diff 呈现「最初 before → 最新 after」的完整差异(只 diff 最新的)。
+   */
   record(input: NewFileChange): FileChange {
     void this.ensureLoaded()
+    const kind = input.kind ?? 'file'
+    // Merge:同会话同路径的文件写入 → 更新已有记录。
+    if (kind === 'file') {
+      for (const existing of this.changes.values()) {
+        if (existing.kind !== 'file' || existing.sessionId !== input.sessionId || existing.path !== input.path) continue
+        existing.after = input.after
+        existing.diff = renderUnified(existing.before, existing.after)
+        existing.diskBaseline = input.after
+        // diff 变了 → 块级应用/编辑状态作废;新内容需重新确认。
+        existing.hunkApplied = undefined
+        existing.hunkEdits = undefined
+        existing.status = 'pending'
+        existing.source = input.source
+        existing.toolName = input.toolName
+        existing.toolCallId = input.toolCallId
+        existing.updatedAt = Date.now()
+        this.ctx.emit('change.updated', existing)
+        this.persist()
+        return existing
+      }
+    }
     const change: FileChange = {
       id: `change-${this.nextId++}`,
       sessionId: input.sessionId,
       cwd: input.cwd,
-      kind: input.kind ?? 'file',
+      kind,
       path: input.path,
       operation: input.operation,
       before: input.before,
       after: input.after,
       // 3.x:捕获发生在工具写盘之后,已知磁盘状态 = after(命令/外部记录无磁盘态)。
-      diskBaseline: (input.kind ?? 'file') === 'file' ? input.after : undefined,
+      diskBaseline: kind === 'file' ? input.after : undefined,
       diff: renderUnified(input.before, input.after),
       status: 'pending',
       source: input.source,
