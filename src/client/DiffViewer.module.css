@@ -55,9 +55,10 @@
   font-weight: 600;
 }
 
-/* diff 内容区(P-2:静态内联样式入 css) */
+/* diff 内容区(P-2:静态内联样式入 css;key 变化=切文件,重挂播放淡入) */
 .content {
   margin-top: 10px;
+  animation: diffExpand 160ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* 3.0.9:脏状态弱视觉 —— 文件名旁小圆点 */
@@ -68,13 +69,15 @@
   flex: none;
 }
 
-/* 3.0.8:状态徽标(weight 驱动视觉权重) */
+/* 3.0.8:状态徽标(weight 驱动视觉权重;规格对齐全局 badge:h20/r10/pill) */
 .statusBadge {
   flex: none;
   font-size: var(--dsw-font-xxxs-11);
-  font-weight: 600;
-  padding: 1px 7px;
-  border-radius: 8px;
+  font-weight: 500;
+  height: 20px;
+  line-height: 20px;
+  padding: 0 8px;
+  border-radius: 10px;
   white-space: nowrap;
 }
 /* 语义配色按状态:applied=绿、failed=红、pending=黄、rolled_back=弱化 */
@@ -95,9 +98,9 @@
   background: var(--dsw-alias-bg-layer-3);
 }
 
-/* 统一 diff：行块式背景色（参考 TrajectoryTable promptDiff） */
+/* 统一 diff：行块式背景色(GitHub 风格左缘色条 + 淡化背景) */
 .diffBody {
-  max-height: 380px;
+  max-height: min(60vh, 560px);
   animation: diffExpand 160ms cubic-bezier(0.4, 0, 0.2, 1);
   overflow: auto;
   font-family: var(--dsw-font-family-mono, monospace);
@@ -123,17 +126,19 @@
   composes: diffRow;
   color: color-mix(in srgb, var(--dsw-alias-state-success-primary) 72%, var(--dsw-alias-label-primary));
   background: var(--dsw-alias-state-success-tertiary);
+  box-shadow: inset 3px 0 0 var(--dsw-alias-state-success-primary);
 }
 .diffRowRemoved {
   composes: diffRow;
   color: var(--dsw-alias-state-error-primary);
-  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, var(--dsw-alias-bg-layer-1));
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 8%, var(--dsw-alias-bg-layer-1));
+  box-shadow: inset 3px 0 0 var(--dsw-alias-state-error-primary);
 }
 
 /* 行号 gutter */
 .lineNo {
   flex: none;
-  width: 40px;
+  width: 44px;
   padding-right: 8px;
   text-align: right;
   color: var(--dsw-alias-label-tertiary);
@@ -148,15 +153,17 @@
 .diffLineAdded {
   color: color-mix(in srgb, var(--dsw-alias-state-success-primary) 72%, var(--dsw-alias-label-primary));
   background: var(--dsw-alias-state-success-tertiary);
+  box-shadow: inset 3px 0 0 var(--dsw-alias-state-success-primary);
 }
 .diffLineRemoved {
   color: var(--dsw-alias-state-error-primary);
-  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, var(--dsw-alias-bg-layer-1));
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 8%, var(--dsw-alias-bg-layer-1));
+  box-shadow: inset 3px 0 0 var(--dsw-alias-state-error-primary);
 }
-/* 已撤销块中该区域的 before 内容(灰,非变更行)。 */
+/* 已撤销块中该区域的 before 内容(灰,非变更行;用 layer-3 与卡片底色区分)。 */
 .diffLineContext {
   color: var(--dsw-alias-label-tertiary);
-  background: var(--dsw-alias-bg-layer-2);
+  background: var(--dsw-alias-bg-layer-3);
 }
 /* hunk 块内一行:行号 gutter + 内容(与统一视图行号对齐)。 */
 .hunkLine {
@@ -174,16 +181,26 @@
 }
 
 .diffNoChange {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 16px 8px;
   color: var(--dsw-alias-label-tertiary);
-  padding: 8px;
   font-family: inherit;
+  font-size: var(--dsw-font-xxs-12);
+}
+.diffNoChangeIcon {
+  opacity: 0.6;
+  font-weight: 300;
 }
 
-/* 并排双栏 */
+/* 并排双栏(高度预算与统一/hunk 视图一致,表头 sticky) */
 .sideBySide {
   border: 1px solid var(--dsw-alias-border-l1);
   border-radius: 8px;
-  overflow: hidden;
+  overflow: auto;
+  max-height: min(60vh, 560px);
 }
 .sideRow {
   display: flex;
@@ -197,6 +214,9 @@
 }
 .sideHeader {
   display: flex;
+  position: sticky;
+  top: 0;
+  z-index: 1;
   border-bottom: 1px solid var(--dsw-alias-border-l1);
   background: var(--dsw-alias-bg-layer-3);
   font-size: var(--dsw-font-xxxs-11);
@@ -214,10 +234,12 @@
   composes: sideHeader;
 }
 .sideRowDeletion {
-  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, var(--dsw-alias-bg-layer-1));
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 8%, var(--dsw-alias-bg-layer-1));
+  box-shadow: inset 3px 0 0 var(--dsw-alias-state-error-primary);
 }
 .sideRowInsertion {
   background: var(--dsw-alias-state-success-tertiary);
+  box-shadow: inset 3px 0 0 var(--dsw-alias-state-success-primary);
 }
 /* 列格:flex 单元格,行号固定宽 gutter 右对齐,文本填充剩余宽度 → 行号与代码严格对齐 */
 .sideCol {
@@ -228,9 +250,9 @@
   padding: 0 8px;
   min-height: 17px;
 }
-/* 右列:竖向分割线(加深左右分栏) */
+/* 右列:竖向分割线(细,不重于块间分隔) */
 .sideColAfter {
-  border-left: 1px solid var(--dsw-alias-border-l2);
+  border-left: 1px solid var(--dsw-alias-border-l1);
 }
 .sideText {
   flex: 1;
@@ -251,7 +273,7 @@
   border-top: 1px solid var(--dsw-alias-border-l1);
 }
 .sideRowContext {
-  background: var(--dsw-alias-bg-layer-2);
+  background: var(--dsw-alias-bg-layer-3);
 }
 .sideColContextText {
   color: var(--dsw-alias-label-tertiary);
@@ -320,64 +342,6 @@
 .savedHint {
   color: var(--dsw-alias-state-success-primary);
   font-size: var(--dsw-font-xxs-12);
-}
-
-
-/* 4.x AI 变更摘要 + Diff 折叠 */
-.aiSummary {
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 12px;
-  background: var(--dsw-alias-bg-layer-2);
-  padding: 10px 12px;
-  margin-bottom: 8px;
-}
-.aiSummaryHead {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 4px;
-}
-.aiSummaryTitle {
-  font-size: var(--dsw-font-xxs-12);
-  font-weight: 700;
-  color: var(--dsw-alias-label-primary);
-}
-.aiSummaryRisk {
-  font-size: var(--dsw-font-xxxs-11);
-  color: var(--dsw-alias-label-secondary);
-  font-variant-numeric: tabular-nums;
-}
-.aiSummaryText {
-  font-size: var(--dsw-font-xxs-12);
-  color: var(--dsw-alias-label-secondary);
-  line-height: 1.6;
-}
-.aiFindings {
-  margin: 6px 0 0;
-  padding-left: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-.aiFinding {
-  font-size: var(--dsw-font-xxxs-11);
-  color: var(--dsw-alias-label-secondary);
-  display: flex;
-  gap: 6px;
-}
-.aiFindingError {
-  color: var(--dsw-alias-state-error-primary);
-  font-weight: 600;
-}
-.aiFindingWarn {
-  color: var(--dsw-alias-state-warn-primary);
-  font-weight: 600;
-}
-.aiSummaryOk {
-  margin-top: 4px;
-  font-size: var(--dsw-font-xxs-12);
-  color: var(--dsw-alias-state-success-primary);
 }
 
 .diffToggle {
@@ -536,7 +500,7 @@
   position: relative;
   display: flex;
   flex-direction: column;
-  max-height: 60vh;
+  max-height: min(60vh, 560px);
   overflow: auto;
   border: 1px solid var(--dsw-alias-border-l1);
   border-radius: 8px;
@@ -582,18 +546,14 @@
   background: color-mix(in srgb, var(--dsw-alias-brand-primary) 7%, transparent);
 }
 
-/* 块操作栏:状态胶囊在左,操作图标推到行最末(中间细线分隔)。 */
+/* 块操作栏:状态胶囊在左,操作图标推到行最末(中间细线分隔)。
+   激活态由块本身(.hunkFlowActive 左条+底色)表达,操作栏不再叠加背景。 */
 .hunkBar {
   display: flex;
   align-items: center;
   gap: 8px;
   margin: 2px 10px 5px;
   min-height: 22px;
-}
-
-.hunkBarActive {
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--dsw-alias-brand-primary) 10%, transparent);
 }
 
 .hunkBar > .hunkAppliedTag,
@@ -690,7 +650,7 @@
   padding: 6px 8px;
   font-family: var(--dsw-font-family-mono, monospace);
   font-size: var(--dsw-font-xs-13);
-  line-height: 1.55;
+  line-height: 18px;
   color: var(--dsw-alias-label-primary);
   background: var(--dsw-alias-bg-layer-1);
   border: 1px solid var(--dsw-alias-border-l2);

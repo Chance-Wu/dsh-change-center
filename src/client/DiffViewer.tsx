@@ -154,7 +154,7 @@ export function DiffViewer(props: DiffViewerProps): ReactElement {
         onChange: (next: string) => onModeChange(next as DiffMode),
       }),
     ),
-    createElement('div', { className: css.content },
+    createElement('div', { key: change.id, className: css.content },
       // 5.x 解释卡:为什么改 / 影响 / 建议 + 相关文件。
       createElement(ExplanationCard, {
         change,
@@ -211,35 +211,6 @@ export function DiffViewer(props: DiffViewerProps): ReactElement {
   )
 }
 
-/** 4.x AI 变更摘要:先回答「AI 改了什么、是否安全」,再展开代码 Diff。 */
-function AISummaryBlock(props: { review: WireReview; change: WireChange }): ReactElement {
-  const { review, change } = props
-  const findings = review.findings.filter(f => {
-    if (f.filePath.length === 0) return false
-    return change.path === f.filePath || change.path.endsWith(`/${f.filePath}`)
-  })
-  return createElement('div', { className: css.aiSummary },
-    createElement('div', { className: css.aiSummaryHead },
-      createElement('span', { className: css.aiSummaryTitle }, 'AI 变更摘要'),
-      createElement('span', { className: css.aiSummaryRisk },
-        `风险 ${RISK_ZH[review.risk] ?? review.risk} · 评分 ${review.score}`),
-    ),
-    review.summary.length > 0
-      ? createElement('div', { className: css.aiSummaryText }, review.summary)
-      : null,
-    findings.length > 0
-      ? createElement('ul', { className: css.aiFindings },
-        findings.slice(0, 3).map(finding => createElement('li', { key: finding.id, className: css.aiFinding },
-          createElement('span', { className: finding.severity === 'error' || finding.severity === 'critical' ? css.aiFindingError : css.aiFindingWarn },
-            SEVERITY_ZH[finding.severity] ?? finding.severity),
-          createElement('span', null, finding.title),
-        )),
-      )
-      : createElement('div', { className: css.aiSummaryOk }, '✓ 本文件未发现审查问题'),
-  )
-}
-
-const RISK_ZH: Record<string, string> = { low: '低', medium: '中', high: '高', critical: '严重' }
 const SEVERITY_ZH: Record<string, string> = {
   critical: '严重', error: '错误', warning: '警告', info: '提示',
 }
@@ -525,7 +496,7 @@ function HunkedView(props: {
       },
       // 块操作栏融入 diff:已应用/已撤销 + 行末图标操作(取代浮动面板)。
       createElement('div', {
-        className: isActive ? `${css.hunkBar} ${css.hunkBarActive}` : css.hunkBar,
+        className: css.hunkBar,
       },
       createElement('span', { className: isApplied ? css.hunkAppliedTag : css.hunkRevertedTag },
         isApplied ? '已应用' : '已撤销'),
@@ -716,7 +687,10 @@ function UnifiedView(props: { change: WireChange; findings: WireFinding[] }): Re
         : null,
       )
     }),
-    lines.length === 0 ? createElement('div', { className: css.diffNoChange }, '(无变更)') : null,
+    lines.length === 0 ? createElement('div', { className: css.diffNoChange },
+      createElement('span', { className: css.diffNoChangeIcon }, '—'),
+      createElement('span', null, '无变更'),
+    ) : null,
   )
 }
 
