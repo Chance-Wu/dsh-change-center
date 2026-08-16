@@ -555,18 +555,20 @@
 }
 
 /* 操作面板:sticky 于滚动区顶部 —— 跟随滑动始终可见,操作当前块;
-   浮动卡片样式 + 出现动效。 */
+   紧凑工具栏 + 出现动效。 */
 .hunkOpPanel {
   position: sticky;
   top: 0;
   z-index: 5;
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin: 6px 8px 8px;
-  padding: 5px 10px;
+  gap: 8px;
+  width: fit-content;
+  max-width: calc(100% - 16px);
+  margin: 6px 8px;
+  padding: 4px 8px;
   border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 8px;
+  border-radius: 10px;
   background: var(--dsw-alias-bg-layer-2);
   box-shadow: var(--dsw-shadow-lv1);
   animation: hunkPanelIn 180ms cubic-bezier(0.4, 0, 0.2, 1);
@@ -584,26 +586,64 @@
 .hunkOpTitle {
   font-size: var(--dsw-font-xxs-12);
   font-weight: 600;
-  color: var(--dsw-alias-label-primary);
+  color: var(--dsw-alias-label-secondary);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
 .hunkOpActions {
-  margin-left: auto;
   display: inline-flex;
-  gap: 6px;
+  align-items: center;
+  gap: 5px;
   flex: none;
 }
 
+/* 状态胶囊:已应用 / 已撤销 */
 .hunkAppliedTag {
   color: var(--dsw-alias-state-success-primary);
+  background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 12%, transparent);
   font-size: var(--dsw-font-xxxs-11);
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 1px 7px;
+  white-space: nowrap;
 }
 
 .hunkRevertedTag {
   color: var(--dsw-alias-label-tertiary);
+  background: var(--dsw-alias-bg-layer-3);
   font-size: var(--dsw-font-xxxs-11);
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 1px 7px;
+  white-space: nowrap;
+}
+
+/* 上/下导航:小图标按钮 */
+.hunkNavBtn {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-secondary);
+  font-size: var(--dsw-font-xxs-12);
+  cursor: pointer;
+  transition: border-color 0.12s, color 0.12s, background 0.12s;
+}
+
+.hunkNavBtn:hover:not(:disabled) {
+  border-color: var(--dsw-alias-brand-primary);
+  color: var(--dsw-alias-brand-primary);
+}
+
+.hunkNavBtn:disabled {
+  opacity: 0.35;
+  cursor: default;
 }
 
 /* 流式块:无框,分隔线 + 行;激活块左侧强调条(带过渡) */

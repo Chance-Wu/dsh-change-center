@@ -498,16 +498,16 @@ function HunkedView(props: {
       ref: panelRef,
       onClick: (event: { stopPropagation: () => void }) => event.stopPropagation(),
     },
-    createElement('span', { className: css.hunkOpTitle }, `${index + 1} / ${hunks.length}`),
+    createElement('span', { className: css.hunkOpTitle }, `${index + 1}/${hunks.length}`),
     createElement('span', { className: isApplied ? css.hunkAppliedTag : css.hunkRevertedTag },
       isApplied ? '已应用' : '已撤销'),
     createElement('div', { className: css.hunkOpActions },
       createElement('button', {
-        className: baseCss.buttonMini,
+        className: css.hunkNavBtn,
         disabled: index <= 0,
         onClick: () => scrollTo(index - 1),
         title: '上一个块 (↑)',
-      }, '↑ 上一块'),
+      }, '↑'),
       isApplied && !isEditing && onEditHunk !== undefined
         ? createElement('button', { className: baseCss.buttonMini, onClick: () => startEdit(index) }, '编辑')
         : null,
@@ -517,11 +517,11 @@ function HunkedView(props: {
           : createElement('button', { className: baseCss.buttonMini, onClick: () => runOp(index, () => onHunk(index, false)) }, '应用该块'))
         : null,
       createElement('button', {
-        className: baseCss.buttonMini,
+        className: css.hunkNavBtn,
         disabled: index >= hunks.length - 1,
         onClick: () => scrollTo(index + 1),
         title: '下一个块 (↓)',
-      }, '↓ 下一块'),
+      }, '↓'),
     ),
     )
   }
